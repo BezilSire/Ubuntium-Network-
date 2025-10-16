@@ -1,0 +1,118 @@
+import React, { useState } from 'react';
+import { Admin, User } from '../types';
+import { useToast } from '../contexts/ToastContext';
+import { api } from '../services/apiService';
+
+interface AdminProfileProps {
+  user: Admin;
+  onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
+}
+
+export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }) => {
+  const [formData, setFormData] = useState({
+    name: user.name,
+    email: user.email,
+    phone: user.phone || '',
+    id_card_number: user.id_card_number || '',
+    address: user.address || '',
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const { addToast } = useToast();
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      if (!formData.name.trim() || !formData.email.trim()) {
+        addToast('Name and email cannot be empty.', 'error');
+        setIsSaving(false);
+        return;
+      }
+      await onUpdateUser({ 
+        name: formData.name, 
+        email: formData.email, 
+        phone: formData.phone,
+        id_card_number: formData.id_card_number,
+        address: formData.address,
+      });
+    } catch (error) {
+      addToast('Failed to update profile. Please try again.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!window.confirm("Are you sure you want to send a password reset link to your email? You will be logged out if you proceed.")) {
+        return;
+    }
+    setIsSendingReset(true);
+    try {
+        await api.sendPasswordReset(user.email);
+        addToast(`A password reset link has been sent to ${user.email}.`, 'success');
+    } catch {
+        addToast("Failed to send password reset email.", "error");
+    } finally {
+        setIsSendingReset(false);
+    }
+  }
+  
+  const hasChanges = formData.name !== user.name || 
+                     formData.email !== user.email || 
+                     formData.phone !== (user.phone || '') ||
+                     formData.id_card_number !== (user.id_card_number || '') ||
+                     formData.address !== (user.address || '');
+
+  return (
+    <div className="bg-slate-800 p-6 rounded-lg shadow-lg animate-fade-in max-w-2xl mx-auto">
+      <h2 className="text-2xl font-semibold text-white mb-6 border-b border-slate-700 pb-4">Admin Profile & Settings</h2>
+      
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <h3 className="text-lg font-medium text-gray-200">Personal Information</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-300">Full Name</label>
+            <input type="text" name="name" id="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+          </div>
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-300">Email Address</label>
+            <input type="email" name="email" id="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+          </div>
+          <div>
+            <label htmlFor="phone" className="block text-sm font-medium text-gray-300">Phone Number</label>
+            <input type="tel" name="phone" id="phone" value={formData.phone} onChange={handleChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+          </div>
+          <div>
+            <label htmlFor="id_card_number" className="block text-sm font-medium text-gray-300">ID Card Number</label>
+            <input type="text" name="id_card_number" id="id_card_number" value={formData.id_card_number} onChange={handleChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+          </div>
+        </div>
+        <div>
+            <label htmlFor="address" className="block text-sm font-medium text-gray-300">Address</label>
+            <textarea name="address" id="address" rows={3} value={formData.address} onChange={handleChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+        </div>
+        <div className="flex justify-end pt-4 border-t border-slate-700">
+          <button type="submit" disabled={isSaving || !hasChanges} className="inline-flex justify-center py-2 px-6 border border-transparent rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-500">
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+
+      <div className="mt-8 pt-6 border-t border-slate-700">
+          <h3 className="text-lg font-medium text-gray-200">Security</h3>
+          <div className="mt-4 flex flex-col sm:flex-row justify-between items-center bg-slate-900/50 p-4 rounded-lg">
+              <p className="text-sm text-gray-300">Request a secure link to reset your password.</p>
+              <button onClick={handlePasswordReset} disabled={isSendingReset} className="mt-3 sm:mt-0 w-full sm:w-auto inline-flex justify-center py-2 px-4 rounded-md text-white bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500">
+                {isSendingReset ? 'Sending...' : 'Send Password Reset Email'}
+              </button>
+          </div>
+      </div>
+    </div>
+  );
+};
