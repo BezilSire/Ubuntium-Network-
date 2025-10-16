@@ -279,6 +279,22 @@ export const api = {
       await batch.commit();
   },
 
+  rejectMember: async (member: Member): Promise<void> => {
+      const batch = writeBatch(db);
+
+      // 1. Update the member's status to 'rejected'
+      const memberRef = doc(db, 'members', member.id);
+      batch.update(memberRef, { payment_status: 'rejected' });
+
+      // 2. If a user account exists, mark it as 'ousted'
+      if (member.uid) {
+          const userRef = doc(db, 'users', member.uid);
+          batch.update(userRef, { status: 'ousted' });
+      }
+
+      await batch.commit();
+  },
+
   sendBroadcast: async (message: string): Promise<Broadcast> => {
     const newBroadcast: Omit<Broadcast, 'id'> = {
       message,

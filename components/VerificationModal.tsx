@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Member } from '../types';
 import { XCircleIcon } from './icons/XCircleIcon';
 import { ExclamationTriangleIcon } from './icons/ExclamationTriangleIcon';
@@ -7,16 +7,35 @@ interface VerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
   member: Member;
-  onApprove: (member: Member) => void;
+  onApprove: (member: Member) => Promise<void>;
+  onReject: (member: Member) => Promise<void>;
 }
 
-export const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, onClose, member, onApprove }) => {
+export const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, onClose, member, onApprove, onReject }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+
   if (!isOpen) {
     return null;
   }
 
-  const handleApprove = () => {
-    onApprove(member);
+  const handleApprove = async () => {
+    setIsProcessing(true);
+    try {
+      await onApprove(member);
+    } catch (e) {
+      // If there's an error, re-enable the buttons
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setIsProcessing(true);
+    try {
+      await onReject(member);
+    } catch(e) {
+      // If there's an error, re-enable the buttons
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -30,7 +49,7 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, on
                  <h3 className="text-lg leading-6 font-medium text-white" id="modal-title">
                   Verify New Member
                 </h3>
-                <button onClick={onClose} className="text-gray-400 hover:text-white">
+                <button onClick={onClose} className="text-gray-400 hover:text-white" disabled={isProcessing}>
                     <XCircleIcon className="h-6 w-6" />
                 </button>
             </div>
@@ -51,7 +70,8 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, on
                     <DetailItem label="Email" value={member.email} />
                     <DetailItem label="Phone" value={member.phone} />
                     <DetailItem label="Circle" value={member.circle} />
-                    <DetailItem label="Registration Fee" value={`$${member.registration_amount.toFixed(2)}`} />
+                    <DetailItem label="Address" value={member.address ?? 'Not provided'} />
+                    <DetailItem label="National ID" value={member.national_id ?? 'Not provided'} />
                     <DetailItem label="Date Submitted" value={new Date(member.date_registered).toLocaleString()} />
                 </div>
             </div>
@@ -59,17 +79,19 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, on
           <div className="bg-slate-800 border-t border-slate-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
             <button
               type="button"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm"
+              disabled={isProcessing}
+              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-slate-500"
               onClick={handleApprove}
             >
-              Approve Member
+              {isProcessing ? 'Processing...' : 'Approve Member'}
             </button>
             <button
               type="button"
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-600 shadow-sm px-4 py-2 bg-slate-700 text-base font-medium text-gray-300 hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-              onClick={onClose}
+              disabled={isProcessing}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-red-600 shadow-sm px-4 py-2 bg-red-800 text-base font-medium text-red-200 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-red-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-slate-500"
+              onClick={handleReject}
             >
-              Close
+               {isProcessing ? 'Processing...' : 'Reject Member'}
             </button>
           </div>
         </div>

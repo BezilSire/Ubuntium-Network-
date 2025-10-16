@@ -213,6 +213,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         } catch (error) {
             const msg = error instanceof Error ? error.message : "An unknown error occurred.";
             addToast(`Approval failed: ${msg}`, 'error');
+            throw error;
+        }
+    }
+
+    const handleRejectMember = async (memberToReject: Member) => {
+        try {
+            await api.rejectMember(memberToReject);
+            addToast(`${memberToReject.full_name}'s registration has been rejected.`, 'info');
+            setVerificationModalState({ isOpen: false, member: null });
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : "An unknown error occurred.";
+            addToast(`Rejection failed: ${msg}`, 'error');
+            throw error;
         }
     }
     
@@ -428,7 +441,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     <div className="space-y-8 animate-fade-in">
         <ConfirmationDialog isOpen={dialogState.isOpen} onClose={() => setDialogState({ isOpen: false, member: null, action: 'reset' })} onConfirm={dialogState.action === 'reset' ? handleResetQuota : handleClearPost} title={dialogState.action === 'reset' ? "Reset Quota?" : "Clear Last Post?"} message={`Are you sure you want to ${dialogState.action === 'reset' ? 'reset the monthly distress call quota' : 'clear the last distress post'} for ${dialogState.member?.full_name}? This action cannot be undone.`} confirmButtonText={dialogState.action === 'reset' ? "Reset Quota" : "Clear Post"} />
         <ConfirmationDialog isOpen={roleChangeDialog.isOpen} onClose={() => setRoleChangeDialog({ isOpen: false, user: null, newRole: null })} onConfirm={handleRoleChangeConfirm} title="Confirm Role Change" message={`Are you sure you want to change ${roleChangeDialog.user?.name}'s role to "${roleChangeDialog.newRole}"?`} confirmButtonText="Confirm Change" />
-        {verificationModalState.member && <VerificationModal isOpen={verificationModalState.isOpen} onClose={() => setVerificationModalState({isOpen: false, member: null})} member={verificationModalState.member} onApprove={handleApproveMember} />}
+        {verificationModalState.member && (
+            <VerificationModal 
+                isOpen={verificationModalState.isOpen} 
+                onClose={() => setVerificationModalState({isOpen: false, member: null})} 
+                member={verificationModalState.member} 
+                onApprove={handleApproveMember}
+                onReject={handleRejectMember}
+            />
+        )}
       
         <div>
             <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>

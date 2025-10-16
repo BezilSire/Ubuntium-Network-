@@ -31,7 +31,7 @@ export interface Member {
   email: string;
   circle: string;
   registration_amount: number;
-  payment_status: 'complete' | 'installment' | 'pending' | 'pending_verification';
+  payment_status: 'complete' | 'installment' | 'pending' | 'pending_verification' | 'rejected';
   agent_id: string;
   agent_name?: string;
   date_registered: string; // ISO string

@@ -31,6 +31,9 @@ const PaymentStatusBadge: React.FC<{ status: Member['payment_status'] }> = ({ st
   if (status === 'pending_verification') {
     return <span className={`${baseClasses} bg-purple-800 text-purple-300`}>Pending Verification</span>;
   }
+  if (status === 'rejected') {
+    return <span className={`${baseClasses} bg-red-800 text-red-300`}>Rejected</span>;
+  }
   return <span className={`${baseClasses} bg-yellow-800 text-yellow-300`}>Pending</span>;
 };
 
