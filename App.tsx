@@ -12,6 +12,7 @@ import { Sidebar } from './components/Sidebar';
 import { BottomNavBar } from './components/BottomNavBar';
 import { useAuth } from './contexts/AuthContext';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { AppInstallBanner } from './components/AppInstallBanner';
 
 type AgentView = 'dashboard' | 'members' | 'profile';
 
@@ -163,6 +164,7 @@ const App: React.FC = () => {
       <ToastContainer />
       <Header user={currentUser} onLogout={handleLogoutWithReset} />
       {renderDashboard()}
+      <AppInstallBanner />
     </div>
   );
 };
