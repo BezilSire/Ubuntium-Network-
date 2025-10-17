@@ -124,6 +124,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const handleNavigate = (item: NotificationItem) => {
       switch (item.type) {
           case 'NEW_MESSAGE':
+          case 'NEW_CHAT':
               const convo = conversations.find(c => c.id === item.link);
               if (convo) {
                   setChatTarget(convo);

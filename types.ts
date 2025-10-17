@@ -152,7 +152,7 @@ export interface Report {
 export interface Notification {
   id: string;
   userId: string; // Recipient
-  type: 'NEW_MESSAGE' | 'POST_LIKE';
+  type: 'NEW_MESSAGE' | 'POST_LIKE' | 'NEW_CHAT';
   message: string;
   link: string; // convoId or postId
   causerId: string;

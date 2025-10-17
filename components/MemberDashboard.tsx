@@ -259,6 +259,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
   const handleNavigate = (item: NotificationItem) => {
       switch (item.type) {
           case 'NEW_MESSAGE':
+          case 'NEW_CHAT':
               const convo = conversations.find(c => c.id === item.link);
               if (convo) {
                   setChatTarget(convo);

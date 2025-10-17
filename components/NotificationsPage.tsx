@@ -17,7 +17,9 @@ interface NotificationsPageProps {
 const NotificationIcon: React.FC<{ type: NotificationItem['type'] }> = ({ type }) => {
     const className = "h-6 w-6 text-gray-400";
     switch (type) {
-        case 'NEW_MESSAGE': return <MessageSquareIcon className={className} />;
+        case 'NEW_MESSAGE':
+        case 'NEW_CHAT':
+            return <MessageSquareIcon className={className} />;
         case 'POST_LIKE': return <ThumbsUpIcon className={className} />;
         case 'NEW_MEMBER': return <UsersIcon className={className} />;
         case 'NEW_POST_PROPOSAL': return <LightbulbIcon className={className} />;

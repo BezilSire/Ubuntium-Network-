@@ -754,10 +754,15 @@ export const api = {
       // Create notifications for other members in the chat
       const recipients = conversation.members.filter(id => id !== message.senderId);
       for (const recipientId of recipients) {
+          const messageSnippet = message.text.length > 50 ? `${message.text.substring(0, 47)}...` : message.text;
+          const notificationMessage = conversation.isGroup 
+            ? `${message.senderName} in ${conversation.name}: "${messageSnippet}"`
+            : `${message.senderName}: "${messageSnippet}"`;
+
           const notification: Omit<Notification, 'id'> = {
               userId: recipientId,
               type: 'NEW_MESSAGE',
-              message: `New message from ${message.senderName}${conversation.isGroup ? ` in ${conversation.name}` : ''}`,
+              message: notificationMessage,
               link: convoId,
               causerId: message.senderId,
               causerName: message.senderName,
@@ -806,7 +811,21 @@ export const api = {
           readBy: []
       };
       await setDoc(convoRef, newConvoData);
-      return { id: convoId, ...newConvoData, lastMessageTimestamp: newConvoData.lastMessageTimestamp };
+
+      // Create a notification for the person being contacted
+      const notification: Omit<Notification, 'id'> = {
+        userId: userId2,
+        type: 'NEW_CHAT',
+        message: `${userName1} started a conversation with you.`,
+        link: convoId,
+        causerId: userId1,
+        causerName: userName1,
+        timestamp: newConvoData.lastMessageTimestamp,
+        read: false,
+      };
+      await addDoc(notificationsCollection, notification);
+
+      return { id: convoId, ...newConvoData };
   },
 
   createGroupChat: async (name: string, memberIds: string[], memberNames: {[key: string]: string}): Promise<void> => {
