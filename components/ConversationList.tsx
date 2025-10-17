@@ -3,20 +3,17 @@ import { Conversation, User } from '../types';
 import { formatTimeAgo } from '../utils';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { UsersIcon } from './icons/UsersIcon';
-import { PencilIcon } from './icons/PencilIcon';
-import { UsersPlusIcon } from './icons/UsersPlusIcon';
 import { api } from '../services/apiService';
 
 interface ConversationListProps {
   conversations: Conversation[];
   currentUser: User;
   onSelectConversation: (conversation: Conversation) => void;
-  onNewChat: () => void;
-  onNewGroup: () => void;
   selectedConversationId?: string | null;
+  onViewProfile: (userId: string) => void;
 }
 
-export const ConversationList: React.FC<ConversationListProps> = ({ conversations, currentUser, onSelectConversation, onNewChat, onNewGroup, selectedConversationId }) => {
+export const ConversationList: React.FC<ConversationListProps> = ({ conversations, currentUser, onSelectConversation, selectedConversationId, onViewProfile }) => {
   const [onlineStatuses, setOnlineStatuses] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -44,16 +41,8 @@ export const ConversationList: React.FC<ConversationListProps> = ({ conversation
 
   return (
     <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-            <h2 className="text-xl font-bold text-white">Chats</h2>
-            <div className="flex items-center space-x-2">
-                 <button onClick={onNewGroup} className="p-2 text-gray-400 hover:text-white hover:bg-slate-700 rounded-full" title="Create Group Chat">
-                    <UsersPlusIcon className="h-5 w-5" />
-                </button>
-                <button onClick={onNewChat} className="p-2 text-gray-400 hover:text-white hover:bg-slate-700 rounded-full" title="New Chat">
-                    <PencilIcon className="h-5 w-5" />
-                </button>
-            </div>
+        <div className="p-4 border-b border-slate-700">
+            <h2 className="text-xl font-bold text-white">Conversations</h2>
         </div>
         <div className="flex-1 overflow-y-auto">
             {conversations.length > 0 ? (
@@ -81,7 +70,16 @@ export const ConversationList: React.FC<ConversationListProps> = ({ conversation
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center">
-                                        <p className={`font-semibold truncate ${isUnread ? 'text-white' : 'text-gray-200'}`}>{partner.name}</p>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (partner.id) onViewProfile(partner.id);
+                                            }}
+                                            disabled={!partner.id || convo.isGroup}
+                                            className={`font-semibold text-left truncate disabled:cursor-default ${isUnread ? 'text-white' : 'text-gray-200'} ${!convo.isGroup ? 'hover:underline' : ''}`}
+                                        >
+                                            {partner.name}
+                                        </button>
                                         <p className={`text-xs flex-shrink-0 ${isUnread ? 'text-green-400' : 'text-gray-500'}`}>{convo.lastMessageTimestamp ? formatTimeAgo(convo.lastMessageTimestamp.toDate().toISOString()) : ''}</p>
                                     </div>
                                     <p className={`text-sm truncate ${isUnread ? 'text-gray-300 font-medium' : 'text-gray-400'}`}>{convo.lastMessage}</p>

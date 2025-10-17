@@ -484,6 +484,7 @@ export const api = {
           content,
           date: new Date().toISOString(),
           upvotes: [],
+          replies: [],
           type,
       };
       const postRef = await addDoc(postsCollection, newPost);
@@ -539,6 +540,7 @@ export const api = {
           content,
           date: new Date().toISOString(),
           upvotes: [],
+          replies: [],
           type: 'distress',
       };
       const postRef = await addDoc(postsCollection, newPost);
@@ -551,9 +553,9 @@ export const api = {
       return await getUserProfile(currentUser.uid) as User;
   },
 
-  listenForPosts: (filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities', callback: (posts: Post[]) => void): () => void => {
+  listenForPosts: (filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities' | 'general', callback: (posts: Post[]) => void): () => void => {
     if (filter === 'all') {
-        const q = query(postsCollection, orderBy('date', 'desc'), limit(50));
+        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
         return onSnapshot(q, (snapshot) => {
             const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
             callback(posts);

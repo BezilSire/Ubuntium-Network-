@@ -11,9 +11,10 @@ interface GroupInfoPanelProps {
   onClose: () => void;
   conversation: Conversation;
   currentUser: User;
+  onViewProfile: (userId: string) => void;
 }
 
-export const GroupInfoPanel: React.FC<GroupInfoPanelProps> = ({ isOpen, onClose, conversation, currentUser }) => {
+export const GroupInfoPanel: React.FC<GroupInfoPanelProps> = ({ isOpen, onClose, conversation, currentUser, onViewProfile }) => {
   const [members, setMembers] = useState<MemberUser[]>([]);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [potentialMembers, setPotentialMembers] = useState<User[]>([]);
@@ -55,7 +56,7 @@ export const GroupInfoPanel: React.FC<GroupInfoPanelProps> = ({ isOpen, onClose,
   if (!isOpen) return null;
 
   return (
-    <aside className="w-full md:w-1/3 border-l border-slate-700 flex flex-col transition-transform transform absolute top-0 right-0 h-full bg-slate-800 md:relative">
+    <aside className="w-full md:w-1/3 border-l border-slate-700 flex flex-col transition-transform transform absolute top-0 right-0 h-full bg-slate-800 md:relative z-20">
         <div className="p-4 border-b border-slate-700 flex justify-between items-center">
             <h3 className="text-xl font-bold text-white">{isAddingMembers ? "Add Members" : "Group Info"}</h3>
             <button onClick={isAddingMembers ? () => setIsAddingMembers(false) : onClose} className="p-1 text-gray-400 hover:text-white rounded-full"><XCircleIcon className="h-6 w-6" /></button>
@@ -64,7 +65,18 @@ export const GroupInfoPanel: React.FC<GroupInfoPanelProps> = ({ isOpen, onClose,
             <div className="flex-1 p-4 overflow-y-auto">
                 <h4 className="font-semibold text-gray-300 mb-2">{members.length} Members</h4>
                 <ul>
-                    {members.map(m => <li key={m.id} className="flex items-center space-x-2 p-2"><UserCircleIcon className="h-8 w-8 text-gray-400"/><span>{m.name}</span></li>)}
+                    {members.map(m => (
+                        <li key={m.id}>
+                            <button 
+                                onClick={() => onViewProfile(m.id)}
+                                disabled={m.id === currentUser.id}
+                                className="w-full text-left flex items-center space-x-3 p-2 rounded-md hover:bg-slate-700/50 disabled:cursor-default disabled:hover:bg-transparent"
+                            >
+                                <UserCircleIcon className="h-8 w-8 text-gray-400"/>
+                                <span>{m.name} {m.id === currentUser.id && '(You)'}</span>
+                            </button>
+                        </li>
+                    ))}
                 </ul>
             </div>
         ) : (

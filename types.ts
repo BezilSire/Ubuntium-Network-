@@ -109,6 +109,7 @@ export interface Post {
   content: string;
   date: string; // ISO string
   upvotes: string[]; // Array of user IDs
+  replies?: string[]; // Array of post IDs (for future implementation)
   type: 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
 }
 

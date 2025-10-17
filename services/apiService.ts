@@ -484,6 +484,7 @@ export const api = {
           content,
           date: new Date().toISOString(),
           upvotes: [],
+          replies: [],
           type,
       };
       const postRef = await addDoc(postsCollection, newPost);
@@ -539,6 +540,7 @@ export const api = {
           content,
           date: new Date().toISOString(),
           upvotes: [],
+          replies: [],
           type: 'distress',
       };
       const postRef = await addDoc(postsCollection, newPost);
@@ -551,9 +553,9 @@ export const api = {
       return await getUserProfile(currentUser.uid) as User;
   },
 
-  listenForPosts: (filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities', callback: (posts: Post[]) => void): () => void => {
+  listenForPosts: (filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities' | 'general', callback: (posts: Post[]) => void): () => void => {
     if (filter === 'all') {
-        const q = query(postsCollection, orderBy('date', 'desc'), limit(50));
+        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
         return onSnapshot(q, (snapshot) => {
             const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
             callback(posts);
@@ -711,7 +713,8 @@ export const api = {
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
     // Admins can contact anyone for 1-on-1 or group chats.
     if (currentUser.role === 'admin') {
-      const snapshot = await getDocs(usersCollection);
+      const q = query(usersCollection, where('status', '==', 'active'));
+      const snapshot = await getDocs(q);
       return snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as User))
         .filter(user => user.id !== currentUser.id);
@@ -719,11 +722,11 @@ export const api = {
     
     // Members and Agents
     if (currentUser.role === 'member' || currentUser.role === 'agent') {
-      // For groups, members/agents can only add other active members.
+      // For groups, allow adding any active user (members, agents, admins).
       if (forGroup) {
-        const membersQuery = query(usersCollection, where('role', '==', 'member'), where('status', '==', 'active'));
-        const membersSnap = await getDocs(membersQuery);
-        return membersSnap.docs
+        const q = query(usersCollection, where('status', '==', 'active'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() } as User))
           .filter(user => user.id !== currentUser.id);
       }
