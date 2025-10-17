@@ -335,7 +335,7 @@ export const api = {
       });
 
       const userRef = doc(db, 'users', member.uid);
-      batch.update(userRef, { status: 'active', distress_calls_available: 1 });
+      batch.update(userRef, { status: 'active', distress_calls_available: 2 });
 
       await batch.commit();
 
@@ -390,7 +390,7 @@ export const api = {
   
   resetDistressQuota: async (uid: string): Promise<void> => {
       const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, { distress_calls_available: 1 });
+      await updateDoc(userRef, { distress_calls_available: 2 });
   },
   
   clearLastDistressPost: async (uid: string): Promise<void> => {
@@ -555,7 +555,7 @@ export const api = {
 
   listenForPosts: (filter: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general', callback: (posts: Post[]) => void): () => void => {
     if (filter === 'all') {
-        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
+        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity', 'distress']), orderBy('date', 'desc'), limit(50));
         return onSnapshot(q, (snapshot) => {
             const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
             callback(posts);

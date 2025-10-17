@@ -10,6 +10,8 @@ import { PublicProfile } from './PublicProfile';
 import { NotificationsPage } from './NotificationsPage';
 import { MemberBottomNav } from './MemberBottomNav';
 import { NewPostModal } from './NewPostModal';
+import { SirenIcon } from './icons/SirenIcon';
+import { PlusCircleIcon } from './icons/PlusCircleIcon';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -21,6 +23,8 @@ interface MemberDashboardProps {
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount }) => {
   const [activeView, setActiveView] = useState<'feed' | 'connect' | 'notifications' | 'profile'>('feed');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
+  const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
+  const [isSubmittingDistress, setIsSubmittingDistress] = useState(false);
   
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const { addToast } = useToast();
@@ -46,6 +50,29 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         return () => unsubscribe();
     }
   }, [user.id, user.status, addToast]);
+
+  const handleDistressCall = async (content: string) => {
+    if (user.distress_calls_available <= 0) {
+        addToast("You have no distress calls available.", "error");
+        return;
+    }
+    setIsSubmittingDistress(true);
+    try {
+        const updatedUser = await api.createDistressPost(content);
+        // This is a partial update; onUpdateUser merges it into the context state
+        onUpdateUser({ 
+            distress_calls_available: (updatedUser as MemberUser).distress_calls_available,
+            last_distress_post_id: (updatedUser as MemberUser).last_distress_post_id,
+        });
+        addToast("Distress call sent. Admins have been alerted.", "success");
+        setIsDistressDialogOpen(false);
+        setActiveView('feed'); // Go to feed to see the post
+    } catch (error) {
+        addToast("Failed to send distress call.", "error");
+    } finally {
+        setIsSubmittingDistress(false);
+    }
+  };
   
   const handleStartChat = async (targetUserId: string) => {
       try {
@@ -130,6 +157,12 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             user={user}
             onPostCreated={handlePostCreated}
         />
+        <DistressCallDialog
+            isOpen={isDistressDialogOpen}
+            onClose={() => setIsDistressDialogOpen(false)}
+            onConfirm={handleDistressCall}
+            isLoading={isSubmittingDistress}
+        />
         
         {user.status === 'pending' && (
             <div className="mt-6 p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-center mx-4">
@@ -144,10 +177,31 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             {renderContent()}
         </div>
 
+        {user.status === 'active' && (
+            <div className="fixed bottom-24 right-4 sm:right-6 lg:right-8 z-20 flex flex-col items-center space-y-3">
+                <button
+                    onClick={() => setIsDistressDialogOpen(true)}
+                    className="flex items-center justify-center w-16 h-16 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-red-500"
+                    title="Send Distress Call"
+                    aria-label="Send Distress Call"
+                >
+                    <SirenIcon className="h-8 w-8" />
+                </button>
+                <button
+                    onClick={() => setIsNewPostOpen(true)}
+                    className="flex items-center justify-center w-14 h-14 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-green-500"
+                    title="Create New Post"
+                    aria-label="Create New Post"
+                >
+                    <PlusCircleIcon className="h-7 w-7" />
+                </button>
+            </div>
+        )}
+
+
         <MemberBottomNav 
             activeView={activeView}
             setActiveView={setActiveView}
-            onNewPostClick={() => setIsNewPostOpen(true)}
             notificationCount={unreadCount + unreadChatCount}
         />
     </div>

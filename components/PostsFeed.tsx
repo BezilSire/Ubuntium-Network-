@@ -11,12 +11,13 @@ import { FlagIcon } from './icons/FlagIcon';
 import { ReportPostModal } from './ReportPostModal';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { UserCircleIcon } from './icons/UserCircleIcon';
+import { SirenIcon } from './icons/SirenIcon';
 
 
 interface PostsFeedProps {
   user: User;
-  // Fix: Changed plural filter types to singular to match Post['type'].
-  filter?: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general';
+  // FIX: Explicitly defined the union type for the 'filter' prop to prevent it from being widened to a generic 'string' type.
+  filter?: 'all' | 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
   authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;
@@ -35,28 +36,47 @@ export const PostItem: React.FC<{
 ({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, isAdminView }) => {
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
+    const isDistressPost = post.type === 'distress';
   
     return (
-        <div className="bg-slate-800 p-4 rounded-lg shadow-md space-y-3">
+        <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 ${isDistressPost ? 'border-2 border-red-500/80 motion-safe:animate-pulse' : ''}`}>
             {/* Header */}
             <div className="flex items-start space-x-3">
-                <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0">
-                    <UserCircleIcon className="h-10 w-10 text-gray-400" />
-                </button>
+                 {isDistressPost ? 
+                    <SirenIcon className="h-10 w-10 text-red-500 flex-shrink-0" />
+                    :
+                    <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0">
+                       <UserCircleIcon className="h-10 w-10 text-gray-400" />
+                    </button>
+                 }
                 <div className="flex-1">
-                    <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="font-semibold text-white hover:underline text-left">
+                     <button 
+                        onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
+                        className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
+                        disabled={isDistressPost}
+                    >
                         {post.authorName}
                     </button>
                     <p className="text-xs text-gray-500">{post.authorCircle} &bull; {formatTimeAgo(post.date)}</p>
                 </div>
-                {(isOwnPost || isAdminView) && post.type !== 'distress' && (
-                    <div className="ml-auto flex items-center space-x-3 text-gray-500">
-                        {isOwnPost && (
-                            <button onClick={() => onEdit(post)} className="hover:text-white" title="Edit post"><PencilIcon className="h-4 w-4" /></button>
-                        )}
-                        <button onClick={() => onDelete(post)} className="hover:text-red-400" title="Delete post"><TrashIcon className="h-4 w-4" /></button>
-                    </div>
-                )}
+                <div className="ml-auto flex items-center space-x-3 text-gray-500">
+                    {isDistressPost ? (
+                        <>
+                            {isAdminView && (
+                                <button onClick={() => onDelete(post)} className="hover:text-red-400" title="Delete distress post"><TrashIcon className="h-4 w-4" /></button>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            {isOwnPost && (
+                                <button onClick={() => onEdit(post)} className="hover:text-white" title="Edit post"><PencilIcon className="h-4 w-4" /></button>
+                            )}
+                            {(isOwnPost || isAdminView) && (
+                                 <button onClick={() => onDelete(post)} className="hover:text-red-400" title="Delete post"><TrashIcon className="h-4 w-4" /></button>
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Content */}
@@ -71,8 +91,14 @@ export const PostItem: React.FC<{
                     <ThumbsUpIcon className={`h-5 w-5 ${hasUpvoted ? 'fill-current' : ''}`} />
                     <span className="text-sm font-medium">{post.upvotes.length > 0 ? post.upvotes.length : ''}</span>
                 </button>
+
+                {isAdminView && isDistressPost && (
+                    <button onClick={() => onViewProfile(post.authorId)} className="text-sm font-semibold text-yellow-400 hover:text-yellow-300">
+                        View Author (Admin)
+                    </button>
+                )}
                 
-                {!isOwnPost && (
+                {!isOwnPost && !isDistressPost && (
                     <button onClick={() => onReport(post)} className="flex items-center space-x-2 text-gray-400 hover:text-red-400 transition-colors">
                         <FlagIcon className="h-4 w-4" />
                         <span className="text-sm">Report</span>

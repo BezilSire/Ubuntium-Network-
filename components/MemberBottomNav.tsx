@@ -1,7 +1,6 @@
 import React from 'react';
 import { HomeIcon } from './icons/HomeIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
-import { PlusCircleIcon } from './icons/PlusCircleIcon';
 import { BellIcon } from './icons/BellIcon';
 import { UserIcon } from './icons/UserIcon';
 
@@ -10,7 +9,6 @@ type ActiveView = 'feed' | 'connect' | 'notifications' | 'profile';
 interface MemberBottomNavProps {
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
-  onNewPostClick: () => void;
   notificationCount: number;
 }
 
@@ -33,7 +31,7 @@ const NavItem: React.FC<{
   </button>
 );
 
-export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeView, setActiveView, onNewPostClick, notificationCount }) => {
+export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeView, setActiveView, notificationCount }) => {
   return (
     <footer className="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 shadow-lg z-40">
       <nav className="max-w-xl mx-auto flex h-20 items-center justify-around px-2 space-x-1">
@@ -49,13 +47,6 @@ export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeView, se
             isActive={activeView === 'connect'}
             onClick={() => setActiveView('connect')}
         />
-        <button
-          onClick={onNewPostClick}
-          className="flex-1 flex flex-col items-center justify-center h-16 text-gray-400 hover:text-white"
-          aria-label="New Post"
-        >
-          <PlusCircleIcon className="h-8 w-8" />
-        </button>
         <NavItem
             icon={<BellIcon />}
             label="Notifications"
