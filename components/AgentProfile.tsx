@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Agent, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
+import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 
 interface AgentProfileProps {
   agent: Agent;
@@ -15,6 +16,7 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
     phone: agent.phone || '',
     id_card_number: agent.id_card_number || '',
     address: agent.address || '',
+    bio: agent.bio || '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const { addToast } = useToast();
@@ -41,6 +43,7 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
         phone: formData.phone,
         id_card_number: formData.id_card_number,
         address: formData.address,
+        bio: formData.bio,
       });
       // The parent component handles success toast
     } catch (error) {
@@ -55,11 +58,15 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
                      formData.circle !== agent.circle ||
                      formData.phone !== (agent.phone || '') ||
                      formData.id_card_number !== (agent.id_card_number || '') ||
-                     formData.address !== (agent.address || '');
+                     formData.address !== (agent.address || '') ||
+                     formData.bio !== (agent.bio || '');
 
   return (
     <div className="bg-slate-800 p-6 rounded-lg shadow-lg animate-fade-in max-w-2xl mx-auto">
-      <h2 className="text-2xl font-semibold text-white mb-6 border-b border-slate-700 pb-4">Your Profile</h2>
+      <h2 className="text-2xl font-semibold text-white mb-2 border-b border-slate-700 pb-4">Your Profile</h2>
+      
+      <ProfileCompletionMeter profileData={formData} role="agent" />
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div>
@@ -81,10 +88,10 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
               name="email"
               id="email"
               value={formData.email}
-              onChange={handleChange}
-              required
-              className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              readOnly
+              className="mt-1 block w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm text-gray-400 sm:text-sm"
             />
+             <p className="mt-2 text-xs text-gray-500">Email cannot be changed after registration.</p>
           </div>
         </div>
 
@@ -124,6 +131,19 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
               value={formData.address}
               onChange={handleChange}
               placeholder="123 Ubuntu Lane, Kampala, Uganda"
+              className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+            />
+        </div>
+
+        <div>
+            <label htmlFor="bio" className="block text-sm font-medium text-gray-300">Bio</label>
+            <textarea
+              name="bio"
+              id="bio"
+              rows={4}
+              value={formData.bio}
+              onChange={handleChange}
+              placeholder="Tell the community a little about yourself..."
               className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
             />
         </div>

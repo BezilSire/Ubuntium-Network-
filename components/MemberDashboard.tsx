@@ -270,7 +270,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
         case 'profile':
-            return <MemberProfile memberId={user.member_id} currentUserId={user.id} onBack={() => setView('dashboard')} />;
+            return <MemberProfile memberId={user.member_id} currentUserId={user.id} onBack={() => setView('dashboard')} onUpdateUser={onUpdateUser} />;
         default:
             return null;
     }

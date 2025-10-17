@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Admin, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import { api } from '../services/apiService';
+import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 
 interface AdminProfileProps {
   user: Admin;
@@ -15,6 +16,7 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
     phone: user.phone || '',
     id_card_number: user.id_card_number || '',
     address: user.address || '',
+    bio: user.bio || '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -40,6 +42,7 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
         phone: formData.phone,
         id_card_number: formData.id_card_number,
         address: formData.address,
+        bio: formData.bio,
       });
     } catch (error) {
       addToast('Failed to update profile. Please try again.', 'error');
@@ -67,12 +70,15 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
                      formData.email !== user.email || 
                      formData.phone !== (user.phone || '') ||
                      formData.id_card_number !== (user.id_card_number || '') ||
-                     formData.address !== (user.address || '');
+                     formData.address !== (user.address || '') ||
+                     formData.bio !== (user.bio || '');
 
   return (
     <div className="bg-slate-800 p-6 rounded-lg shadow-lg animate-fade-in max-w-2xl mx-auto">
-      <h2 className="text-2xl font-semibold text-white mb-6 border-b border-slate-700 pb-4">Admin Profile & Settings</h2>
+      <h2 className="text-2xl font-semibold text-white mb-2 border-b border-slate-700 pb-4">Admin Profile & Settings</h2>
       
+      <ProfileCompletionMeter profileData={formData} role="admin" />
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <h3 className="text-lg font-medium text-gray-200">Personal Information</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -82,7 +88,8 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
           </div>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-300">Email Address</label>
-            <input type="email" name="email" id="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+            <input type="email" name="email" id="email" value={formData.email} readOnly required className="mt-1 block w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm text-gray-400 sm:text-sm" />
+             <p className="mt-2 text-xs text-gray-500">Email cannot be changed after registration.</p>
           </div>
           <div>
             <label htmlFor="phone" className="block text-sm font-medium text-gray-300">Phone Number</label>
@@ -96,6 +103,18 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
         <div>
             <label htmlFor="address" className="block text-sm font-medium text-gray-300">Address</label>
             <textarea name="address" id="address" rows={3} value={formData.address} onChange={handleChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+        </div>
+        <div>
+            <label htmlFor="bio" className="block text-sm font-medium text-gray-300">Bio</label>
+            <textarea
+              name="bio"
+              id="bio"
+              rows={4}
+              value={formData.bio}
+              onChange={handleChange}
+              placeholder="Tell the community a little about yourself..."
+              className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white"
+            />
         </div>
         <div className="flex justify-end pt-4 border-t border-slate-700">
           <button type="submit" disabled={isSaving || !hasChanges} className="inline-flex justify-center py-2 px-6 border border-transparent rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-500">

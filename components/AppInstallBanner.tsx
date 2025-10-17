@@ -23,20 +23,25 @@ export const AppInstallBanner: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Detect iOS
-    // Fix: 'MSStream' is a non-standard property not available on the window type. Cast to any to bypass type checking.
-    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    // @ts-ignore: standalone is a non-standard property for PWA detection on iOS
-    const isInStandaloneMode = window.navigator.standalone === true;
+    // More robust check for iOS devices (including iPads on desktop mode).
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // Cross-browser check for standalone mode. `standalone` is for older iOS.
+    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
+    // --- Logic for iOS custom banner ---
     if (isIOSDevice && !isInStandaloneMode) {
       const isDismissed = localStorage.getItem('iosInstallBannerDismissed');
       if (!isDismissed) {
         setIsIos(true);
         setIsVisible(true);
       }
+      // If it's iOS, we don't need the `beforeinstallprompt` listener, so we exit early.
+      return; 
     }
 
+    // --- Logic for Android/Desktop install prompt ---
+    // This part of the effect will not run on iOS devices.
     const handleBeforeInstallPrompt = (event: Event) => {
         // Prevent the mini-infobar from appearing on mobile
         event.preventDefault();

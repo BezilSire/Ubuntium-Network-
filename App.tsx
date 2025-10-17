@@ -13,6 +13,7 @@ import { BottomNavBar } from './components/BottomNavBar';
 import { useAuth } from './contexts/AuthContext';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { AppInstallBanner } from './components/AppInstallBanner';
+import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 
 type AgentView = 'dashboard' | 'members' | 'profile';
 
@@ -26,6 +27,9 @@ const App: React.FC = () => {
   // State for Agent Dashboard UI
   const [agentView, setAgentView] = useState<AgentView>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Hook to remind users to complete their profile
+  useProfileCompletionReminder(currentUser);
 
 
   useEffect(() => {

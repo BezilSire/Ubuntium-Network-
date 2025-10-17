@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Member } from '../types';
+import { Member, User } from '../types';
 import { api } from '../services/apiService';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { useToast } from '../contexts/ToastContext';
+import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 
 interface MemberProfileProps {
   memberId: string;
   currentUserId: string; // The UID of the logged-in user
   onBack: () => void;
+  onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
 }
 
 const DetailItem: React.FC<{label: string, value: string | undefined, isMono?: boolean}> = ({label, value, isMono = false}) => (
@@ -24,13 +26,16 @@ const Pill: React.FC<{text: string}> = ({ text }) => (
     </span>
 );
 
-export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentUserId, onBack }) => {
+export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentUserId, onBack, onUpdateUser }) => {
     const [member, setMember] = useState<Member | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
     const { addToast } = useToast();
 
     const [editData, setEditData] = useState({
+        full_name: '',
+        phone: '',
+        address: '',
         bio: '',
         profession: '',
         skills: '',
@@ -49,6 +54,9 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                 setMember(fetchedMember);
                 if (fetchedMember) {
                     setEditData({
+                        full_name: fetchedMember.full_name || '',
+                        phone: fetchedMember.phone || '',
+                        address: fetchedMember.address || '',
                         bio: fetchedMember.bio || '',
                         profession: fetchedMember.profession || '',
                         skills: fetchedMember.skills || '',
@@ -75,21 +83,48 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
     };
 
     const handleSave = async () => {
-        if (!member) return;
+        if (!member || !member.uid) {
+            addToast("Could not save profile. User data is missing.", "error");
+            return;
+        }
         setIsLoading(true);
         try {
-            await api.updateMemberProfile(member.id, editData);
-            setMember(prev => prev ? { ...prev, ...editData } : null);
+            const memberUpdateData: Partial<Member> = {
+                full_name: editData.full_name,
+                phone: editData.phone,
+                address: editData.address,
+                bio: editData.bio,
+                profession: editData.profession,
+                skills: editData.skills,
+                awards: editData.awards,
+                interests: editData.interests,
+                passions: editData.passions,
+                gender: editData.gender,
+                age: editData.age,
+            };
+            
+            const userUpdateData: Partial<User> = {
+                name: editData.full_name,
+                phone: editData.phone,
+                address: editData.address,
+                bio: editData.bio,
+            };
+            
+            await Promise.all([
+                api.updateMemberProfile(member.id, memberUpdateData),
+                onUpdateUser(userUpdateData) // This updates 'users' collection and AuthContext
+            ]);
+            
+            setMember(prev => prev ? { ...prev, ...memberUpdateData } : null);
             setIsEditing(false);
-            addToast("Profile updated successfully!", "success");
         } catch (error) {
-            addToast("Failed to update profile.", "error");
+            addToast("An error occurred while saving. Please try again.", "error");
         } finally {
             setIsLoading(false);
         }
     };
 
-    if (isLoading) {
+    if (isLoading && !member) {
         return <div className="text-center p-10">Loading profile...</div>;
     }
 
@@ -97,9 +132,11 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
         return <div className="text-center p-10">Member not found.</div>;
     }
     
-    const skillsArray = member.skills?.split(',').map(s => s.trim()).filter(Boolean) || [];
-    const interestsArray = member.interests?.split(',').map(s => s.trim()).filter(Boolean) || [];
-    const passionsArray = member.passions?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const skillsArray = (isEditing ? editData.skills : member.skills)?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const interestsArray = (isEditing ? editData.interests : member.interests)?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const passionsArray = (isEditing ? editData.passions : member.passions)?.split(',').map(s => s.trim()).filter(Boolean) || [];
+
+    const profileDataForMeter = isEditing ? editData : member;
 
     return (
         <div className="animate-fade-in">
@@ -111,8 +148,8 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
             <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
                 <div className="flex justify-between items-start">
                     <div>
-                        <h2 className="text-3xl font-bold text-white">{member.full_name}</h2>
-                        <p className="text-lg text-green-400">{member.profession || 'Community Member'}</p>
+                        <h2 className="text-3xl font-bold text-white">{isEditing ? editData.full_name : member.full_name}</h2>
+                        <p className="text-lg text-green-400">{isEditing ? editData.profession : member.profession || 'Community Member'}</p>
                         <p className="text-sm text-gray-400">{member.circle} • Joined {new Date(member.date_registered).toLocaleDateString()}</p>
                     </div>
                     {isOwnProfile && !isEditing && (
@@ -122,6 +159,8 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                         </button>
                     )}
                 </div>
+
+                {isOwnProfile && <ProfileCompletionMeter profileData={profileDataForMeter} role="member" />}
 
                 {!isEditing ? (
                     <div className="mt-6 space-y-6">
@@ -152,6 +191,12 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                                 <div>{passionsArray.map(item => <Pill key={item} text={item} />)}</div>
                             </div>
                         )}
+                         {member.awards && (
+                             <div>
+                                <h3 className="text-md font-semibold text-gray-300 mb-2">Awards & Recognitions</h3>
+                                <p className="text-gray-300 whitespace-pre-wrap">{member.awards}</p>
+                            </div>
+                        )}
 
                         <div>
                             <h3 className="text-md font-semibold text-gray-300 border-b border-slate-700 pb-2 mb-2">Contact & Details</h3>
@@ -165,7 +210,21 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                     </div>
                 ) : (
                     <div className="mt-6 space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="full_name" className="block text-sm font-medium text-gray-300">Full Name</label>
+                                <input type="text" name="full_name" id="full_name" value={editData.full_name} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm" />
+                            </div>
+                            <div>
+                                <label htmlFor="phone" className="block text-sm font-medium text-gray-300">Phone</label>
+                                <input type="tel" name="phone" id="phone" value={editData.phone} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm" />
+                            </div>
+                         </div>
+                          <div>
+                                <label htmlFor="address" className="block text-sm font-medium text-gray-300">Address</label>
+                                <input type="text" name="address" id="address" value={editData.address} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm" />
+                         </div>
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label htmlFor="profession" className="block text-sm font-medium text-gray-300">Job / Profession</label>
                                 <input type="text" name="profession" id="profession" value={editData.profession} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm" />
@@ -196,6 +255,10 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                         <div>
                             <label htmlFor="passions" className="block text-sm font-medium text-gray-300">Passions (comma-separated)</label>
                             <input type="text" name="passions" id="passions" value={editData.passions} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm" />
+                        </div>
+                        <div>
+                            <label htmlFor="awards" className="block text-sm font-medium text-gray-300">Awards & Recognitions</label>
+                            <textarea name="awards" id="awards" rows={3} value={editData.awards} onChange={handleEditChange} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white sm:text-sm"></textarea>
                         </div>
                         <div className="flex justify-end space-x-3 pt-4">
                             <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-600 text-white text-sm rounded-md hover:bg-slate-500">Cancel</button>
