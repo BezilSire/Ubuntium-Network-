@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { XCircleIcon } from './icons/XCircleIcon';
 import { LogoIcon } from './icons/LogoIcon';
+import { ShareIcon } from './icons/ShareIcon';
+import { AddToHomeScreenIcon } from './icons/AddToHomeScreenIcon';
+
 
 // Define the event type for BeforeInstallPromptEvent
 interface BeforeInstallPromptEvent extends Event {
@@ -16,9 +19,24 @@ interface BeforeInstallPromptEvent extends Event {
 
 export const AppInstallBanner: React.FC = () => {
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isIos, setIsIos] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
+    // Detect iOS
+    // Fix: 'MSStream' is a non-standard property not available on the window type. Cast to any to bypass type checking.
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    // @ts-ignore: standalone is a non-standard property for PWA detection on iOS
+    const isInStandaloneMode = window.navigator.standalone === true;
+
+    if (isIOSDevice && !isInStandaloneMode) {
+      const isDismissed = localStorage.getItem('iosInstallBannerDismissed');
+      if (!isDismissed) {
+        setIsIos(true);
+        setIsVisible(true);
+      }
+    }
+
     const handleBeforeInstallPrompt = (event: Event) => {
         // Prevent the mini-infobar from appearing on mobile
         event.preventDefault();
@@ -47,8 +65,7 @@ export const AppInstallBanner: React.FC = () => {
     // Show the browser's install prompt.
     installPromptEvent.prompt();
     // Wait for the user to respond to the prompt.
-    const { outcome } = await installPromptEvent.userChoice;
-    console.log(`User response to the install prompt: ${outcome}`);
+    await installPromptEvent.userChoice;
     // We've used the prompt, and can't use it again, so clear it.
     setInstallPromptEvent(null);
     // Hide the banner regardless of the outcome.
@@ -56,16 +73,31 @@ export const AppInstallBanner: React.FC = () => {
   };
 
   const handleDismiss = () => {
-    localStorage.setItem('appInstallBannerDismissed', 'true');
+    if (isIos) {
+        localStorage.setItem('iosInstallBannerDismissed', 'true');
+    } else {
+        localStorage.setItem('appInstallBannerDismissed', 'true');
+    }
     setIsVisible(false);
   };
+  
+  const renderIosBanner = () => (
+     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[95%] max-w-lg bg-slate-800 border border-slate-700 rounded-lg shadow-2xl p-4 flex items-center space-x-4 animate-fade-in z-50">
+        <LogoIcon className="h-10 w-10 text-green-500 flex-shrink-0" />
+        <div className="flex-grow">
+            <p className="font-bold text-white text-sm">Install the Ubuntium App</p>
+            <p className="text-xs text-gray-300">
+                Tap the <ShareIcon className="inline-block h-4 w-4 mx-0.5" /> icon, then scroll down and tap <AddToHomeScreenIcon className="inline-block h-4 w-4 mx-0.5" /> 'Add to Home Screen'.
+            </p>
+        </div>
+        <button onClick={handleDismiss} className="flex-shrink-0 text-gray-400 hover:text-white" title="Dismiss">
+            <XCircleIcon className="h-6 w-6" />
+        </button>
+    </div>
+  );
 
-  if (!isVisible || !installPromptEvent) {
-    return null;
-  }
-
-  return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[95%] max-w-lg bg-slate-800 border border-slate-700 rounded-lg shadow-2xl p-4 flex items-center space-x-4 animate-fade-in z-50">
+  const renderAndroidBanner = () => (
+     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[95%] max-w-lg bg-slate-800 border border-slate-700 rounded-lg shadow-2xl p-4 flex items-center space-x-4 animate-fade-in z-50">
       <LogoIcon className="h-10 w-10 text-green-500 flex-shrink-0" />
       <div className="flex-grow">
         <p className="font-bold text-white">Install Ubuntium App</p>
@@ -83,4 +115,18 @@ export const AppInstallBanner: React.FC = () => {
       </button>
     </div>
   );
+
+  if (!isVisible) {
+    return null;
+  }
+  
+  if (isIos) {
+      return renderIosBanner();
+  }
+
+  if(installPromptEvent) {
+      return renderAndroidBanner();
+  }
+
+  return null;
 };
