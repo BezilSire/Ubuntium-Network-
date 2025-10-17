@@ -17,7 +17,8 @@ const ReportReviewModal: React.FC<{
     onClose: () => void;
     onResolve: (reportId: string, postId: string, authorId: string) => void;
     onDismiss: (reportId: string) => void;
-}> = ({ report, onClose, onResolve, onDismiss }) => {
+    onViewProfile: (userId: string) => void;
+}> = ({ report, onClose, onResolve, onDismiss, onViewProfile }) => {
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -30,7 +31,10 @@ const ReportReviewModal: React.FC<{
                             <button onClick={onClose} className="text-gray-400 hover:text-white"><XCircleIcon className="h-6 w-6" /></button>
                         </div>
                         <div className="mt-4 space-y-4">
-                            <p><span className="font-semibold text-gray-400">Reported By:</span> {report.reporterName}</p>
+                            <div>
+                                <span className="font-semibold text-gray-400">Reported By: </span> 
+                                <button onClick={() => onViewProfile(report.reporterId)} className="text-white hover:underline">{report.reporterName}</button>
+                            </div>
                             <p><span className="font-semibold text-gray-400">Reason:</span> <span className="capitalize">{report.reason.replace(/_/g, ' ')}</span></p>
                             {report.details && <p><span className="font-semibold text-gray-400">Details:</span> {report.details}</p>}
                              <div className="mt-4 pt-4 border-t border-slate-700">
@@ -38,6 +42,10 @@ const ReportReviewModal: React.FC<{
                                 <blockquote className="p-3 bg-slate-700/50 border-l-4 border-slate-500 rounded-r-lg italic text-gray-300">
                                     "{report.postContent}"
                                 </blockquote>
+                                <div className="text-sm mt-2">
+                                     <span className="font-semibold text-gray-400">Post Author: </span>
+                                     <button onClick={() => onViewProfile(report.postAuthorId)} className="text-white hover:underline">View Author's Profile</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -51,7 +59,7 @@ const ReportReviewModal: React.FC<{
     );
 };
 
-export const ReportsView: React.FC<{ reports: Report[] }> = ({ reports }) => {
+export const ReportsView: React.FC<{ reports: Report[], onViewProfile: (userId: string) => void; }> = ({ reports, onViewProfile }) => {
     const [selectedReport, setSelectedReport] = useState<Report | null>(null);
     const { addToast } = useToast();
 
@@ -99,7 +107,9 @@ export const ReportsView: React.FC<{ reports: Report[] }> = ({ reports }) => {
                         <ReportStatusBadge status={report.status} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400 capitalize">{report.reason.replace(/_/g, ' ')}</td>
-                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{report.reporterName}</td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">
+                        <button onClick={() => onViewProfile(report.reporterId)} className="hover:underline">{report.reporterName}</button>
+                    </td>
                     <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{new Date(report.date).toLocaleDateString()}</td>
                     <td className="whitespace-nowrap px-3 py-4 text-sm">
                       {report.status === 'new' && (
@@ -121,6 +131,7 @@ export const ReportsView: React.FC<{ reports: Report[] }> = ({ reports }) => {
             onClose={() => setSelectedReport(null)}
             onResolve={handleResolve}
             onDismiss={handleDismiss}
+            onViewProfile={onViewProfile}
           />
       )}
     </>

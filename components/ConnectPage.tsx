@@ -8,6 +8,7 @@ import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { ChatHeader } from './ChatHeader';
 import { CreateGroupModal } from './CreateGroupModal';
 import { GroupInfoPanel } from './GroupInfoPanel';
+import { useToast } from '../contexts/ToastContext';
 
 interface ConnectPageProps {
   user: User;
@@ -22,14 +23,23 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({ user, initialTarget, o
   const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
   const [isGroupInfoPanelOpen, setIsGroupInfoPanelOpen] = useState(false);
   const [chatContacts, setChatContacts] = useState<User[]>([]);
+  const { addToast } = useToast();
 
   useEffect(() => {
     if (user.role === 'member' && (user as MemberUser).status !== 'active') return;
-    const unsubscribe = api.listenForConversations(user.id, (convos) => {
-      setConversations(convos);
-    });
+    // FIX: Added missing onError callback to listenForConversations.
+    const unsubscribe = api.listenForConversations(
+      user.id,
+      (convos) => {
+        setConversations(convos);
+      },
+      (error) => {
+        console.error('Failed to listen for conversations:', error);
+        addToast('Could not load conversations.', 'error');
+      },
+    );
     return () => unsubscribe();
-  }, [user.id, user.role, (user as MemberUser).status]);
+  }, [user.id, user.role, (user as MemberUser).status, addToast]);
   
   useEffect(() => {
     api.getChatContacts(user, false).then(setChatContacts);

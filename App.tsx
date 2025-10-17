@@ -14,6 +14,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
+import { PublicProfile } from './components/PublicProfile';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
@@ -28,6 +29,9 @@ const App: React.FC = () => {
   // State for Agent Dashboard UI
   const [agentView, setAgentView] = useState<AgentView>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Global state for viewing a user profile from anywhere (e.g., search)
+  const [globalViewingProfileId, setGlobalViewingProfileId] = useState<string | null>(null);
 
   // Hook to remind users to complete their profile
   useProfileCompletionReminder(currentUser);
@@ -104,6 +108,33 @@ const App: React.FC = () => {
     );
   }
   
+  // If a profile is being viewed globally (e.g., from search), render it as an overlay.
+  if (globalViewingProfileId && currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-gray-200">
+        <ToastContainer />
+        <Header 
+          user={currentUser} 
+          onLogout={handleLogoutWithReset}
+          onProfileSelect={setGlobalViewingProfileId}
+        />
+        <main className="p-4 sm:p-6 lg:p-8">
+            <PublicProfile 
+                userId={globalViewingProfileId}
+                currentUserId={currentUser.id}
+                onBack={() => setGlobalViewingProfileId(null)}
+                onStartChat={() => {
+                  // This is a complex navigation action. For now, guide the user.
+                  setGlobalViewingProfileId(null); // Close profile first
+                  addToast("Please navigate to the 'Connect' tab to start a chat.", 'info');
+                }}
+                onViewProfile={setGlobalViewingProfileId} // Allows navigating from profile to profile
+            />
+        </main>
+      </div>
+    );
+  }
+
   const renderDashboard = () => {
     if (!currentUser) {
         return (
@@ -179,7 +210,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 text-gray-200">
       <ToastContainer />
-      <Header user={currentUser} onLogout={handleLogoutWithReset} />
+      <Header user={currentUser} onLogout={handleLogoutWithReset} onProfileSelect={setGlobalViewingProfileId} />
       {renderDashboard()}
       <AppInstallBanner />
     </div>

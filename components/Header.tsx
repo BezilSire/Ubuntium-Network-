@@ -4,10 +4,12 @@ import { LogoIcon } from './icons/LogoIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { WifiOffIcon } from './icons/WifiOffIcon';
+import { GlobalSearch } from './GlobalSearch';
 
 interface HeaderProps {
   user: User | null;
   onLogout: () => void;
+  onProfileSelect: (userId: string) => void;
 }
 
 const OfflineIndicator: React.FC = () => (
@@ -17,25 +19,32 @@ const OfflineIndicator: React.FC = () => (
     </div>
 );
 
-export const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
+export const Header: React.FC<HeaderProps> = ({ user, onLogout, onProfileSelect }) => {
   const isOnline = useOnlineStatus();
 
   return (
-    <header className="bg-slate-800 shadow-md">
+    <header className="bg-slate-800 shadow-md sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
-          <div className="flex items-center space-x-3">
+        <div className="flex justify-between items-center py-3 gap-4">
+          <div className="flex items-center space-x-3 flex-shrink-0">
             <LogoIcon className="h-10 w-10 text-green-500" />
-            <div>
+            <div className="hidden sm:block">
               <h1 className="text-xl font-bold text-white">Ubuntium Global Commons</h1>
               <p className="text-xs text-green-400 italic">the commons protect those who protects the commons</p>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          
+          {user && (
+            <div className="flex-1 flex justify-center px-4">
+               <GlobalSearch onProfileSelect={onProfileSelect} currentUser={user} />
+            </div>
+          )}
+
+          <div className="flex items-center space-x-4 flex-shrink-0">
             {!isOnline && <OfflineIndicator />}
-            {user && (
+            {user ? (
               <div className="flex items-center space-x-4">
-                <div className="hidden sm:flex items-center space-x-2">
+                <div className="hidden md:flex items-center space-x-2">
                   <UserCircleIcon className="h-6 w-6 text-gray-400" />
                   <span className="text-gray-300 font-medium">{user.name}</span>
                 </div>
@@ -46,6 +55,8 @@ export const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
                   Logout
                 </button>
               </div>
+            ) : (
+                <div className="h-10"></div> // Placeholder to maintain height when logged out
             )}
           </div>
         </div>

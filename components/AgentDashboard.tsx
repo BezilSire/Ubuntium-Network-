@@ -98,8 +98,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
 
   const handleNavigate = (item: NotificationItem) => {
       // Agent does not have a connect/chat view, so we only handle profile views
-      if (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE') {
-          setViewingProfileId(item.link);
+       if (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE' || item.type === 'NEW_POST_PROPOSAL' || item.type === 'NEW_POST_OPPORTUNITY' || item.type === 'NEW_POST_GENERAL' || item.type === 'NEW_POST_OFFER') {
+          // For posts, navigate to the post. For members, navigate to their profile.
+          // This component doesn't have a post view, so we'll just show profile for now.
+          const targetId = item.itemType === 'notification' ? item.causerId : item.link;
+          setViewingProfileId(targetId);
       } else {
           addToast('Navigation for this notification is not available in this view.', 'info');
       }
@@ -230,7 +233,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
                 <p className="text-center py-8 text-gray-400">Loading members...</p>
              ) : paginatedMembers.length > 0 ? (
                  <>
-                    <MemberList members={paginatedMembers} onSelectMember={setSelectedMember} />
+                    <MemberList members={paginatedMembers} onSelectMember={setSelectedMember} onViewProfile={setViewingProfileId} />
                     <Pagination
                       currentPage={currentPage}
                       totalPages={totalPages}
@@ -253,7 +256,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
   );
   
   const renderNotificationsView = () => (
-    <NotificationsPage user={user} onNavigate={handleNavigate} />
+    <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId} />
   );
 
   const renderActiveView = () => {

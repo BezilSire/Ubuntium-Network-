@@ -12,6 +12,7 @@ import { BriefcaseIcon } from './icons/BriefcaseIcon';
 interface NotificationsPageProps {
   user: User;
   onNavigate: (item: NotificationItem) => void;
+  onViewProfile?: (userId: string) => void;
 }
 
 const NotificationIcon: React.FC<{ type: NotificationItem['type'] }> = ({ type }) => {
@@ -30,7 +31,7 @@ const NotificationIcon: React.FC<{ type: NotificationItem['type'] }> = ({ type }
     }
 };
 
-export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNavigate }) => {
+export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNavigate, onViewProfile }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,7 +66,13 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
     if (item.itemType === 'notification' && !item.read) {
       api.markNotificationAsRead(item.id).catch(err => console.error("Failed to mark as read:", err));
     }
-    onNavigate(item);
+    // If onViewProfile is provided and it's a profile link, use it. Otherwise, use onNavigate.
+    if (onViewProfile && (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE')) {
+        const targetId = item.itemType === 'notification' ? item.causerId : item.link;
+        onViewProfile(targetId);
+    } else {
+        onNavigate(item);
+    }
   };
   
   const handleMarkAllRead = async () => {

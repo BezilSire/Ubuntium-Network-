@@ -24,6 +24,7 @@ import { UserCircleIcon } from './icons/UserCircleIcon';
 import { PublicProfile } from './PublicProfile';
 import { BellIcon } from './icons/BellIcon';
 import { NotificationsPage } from './NotificationsPage';
+import { LoaderIcon } from './icons/LoaderIcon';
 
 
 const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; description?: string; }> = ({ icon, title, value, description }) => (
@@ -62,8 +63,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [reports, setReports] = useState<Report[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadErrors, setLoadErrors] = useState<Record<string, string | null>>({});
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [loadingErrors, setLoadingErrors] = useState<string[]>([]);
+
   const { addToast } = useToast();
 
   const [broadcastMessage, setBroadcastMessage] = useState('');
@@ -77,21 +79,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [verificationModalState, setVerificationModalState] = useState<{ isOpen: boolean, member: Member | null }>({ isOpen: false, member: null });
 
   useEffect(() => {
-    const handleError = (dataType: string, error: Error) => {
-        console.error(`Error loading ${dataType}:`, error);
-        const message = `Could not load ${dataType}. This is likely a Firestore security rule misconfiguration.`;
-        addToast(message, 'error');
-        setLoadErrors(prev => ({...prev, [dataType]: message}));
+    const errors = new Set<string>();
+    const streams = ['users', 'members', 'agents', 'pending', 'reports', 'conversations'];
+    const loadedStreams = new Set<string>();
+
+    const checkAllLoaded = () => {
+        if (loadedStreams.size === streams.length) {
+            setIsInitialLoading(false);
+        }
     };
 
-    const unsubUsers = api.listenForAllUsers(setAllUsers, (e) => handleError('all users', e));
-    const unsubMembers = api.listenForAllMembers(setMembers, (e) => handleError('members', e));
-    const unsubAgents = api.listenForAllAgents(setAgents, (e) => handleError('agents', e));
-    const unsubPending = api.listenForPendingMembers(setPendingMembers, (e) => handleError('pending members', e));
-    const unsubReports = api.listenForReports(setReports, (e) => handleError('reports', e));
-    const unsubConversations = api.listenForConversations(user.id, setConversations);
-    
-    setIsLoading(false);
+    const handleStreamLoaded = (streamName: string) => {
+        if (!loadedStreams.has(streamName)) {
+            loadedStreams.add(streamName);
+            checkAllLoaded();
+        }
+    };
+
+    const handleError = (dataType: string, error: Error) => {
+        console.error(`Error loading ${dataType}:`, error);
+        const message = `Could not load ${dataType}. This might be a permissions issue.`;
+        if (!errors.has(message)) {
+            errors.add(message);
+            setLoadingErrors(Array.from(errors));
+            addToast(message, 'error');
+        }
+        handleStreamLoaded(dataType);
+    };
+
+    const unsubUsers = api.listenForAllUsers(
+        (data) => { setAllUsers(data); handleStreamLoaded('users'); },
+        (e) => handleError('all users', e)
+    );
+    const unsubMembers = api.listenForAllMembers(
+        (data) => { setMembers(data); handleStreamLoaded('members'); },
+        (e) => handleError('members', e)
+    );
+    const unsubAgents = api.listenForAllAgents(
+        (data) => { setAgents(data); handleStreamLoaded('agents'); },
+        (e) => handleError('agents', e)
+    );
+    const unsubPending = api.listenForPendingMembers(
+        (data) => { setPendingMembers(data); handleStreamLoaded('pending'); },
+        (e) => handleError('pending members', e)
+    );
+    const unsubReports = api.listenForReports(
+        (data) => { setReports(data); handleStreamLoaded('reports'); },
+        (e) => handleError('reports', e)
+    );
+    const unsubConversations = api.listenForConversations(
+        user.id,
+        (data) => { setConversations(data); handleStreamLoaded('conversations'); },
+        (e) => handleError('conversations', e)
+    );
 
     return () => {
         unsubUsers();
@@ -101,7 +141,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         unsubReports();
         unsubConversations();
     };
-  }, [addToast, user.id]);
+  }, [user.id, addToast]);
 
   // Clear the initial chat target when navigating away from the connect page
   useEffect(() => {
@@ -137,7 +177,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
           case 'NEW_MEMBER':
           case 'NEW_POST_OPPORTUNITY':
           case 'NEW_POST_PROPOSAL':
-              setViewingProfileId(item.link);
+          case 'NEW_POST_GENERAL':
+          case 'NEW_POST_OFFER':
+              // For post likes, navigate to liker's profile. For new member/post, show that user/post.
+              // As admins can't easily view a single post, we'll navigate to the user profile for now.
+              const targetId = item.itemType === 'notification' ? item.causerId : item.link;
+              setViewingProfileId(targetId);
               break;
           default:
               addToast("Navigation for this notification is not available.", "info");
@@ -375,16 +420,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         </div>
     );
 
-    const ErrorDisplay: React.FC<{ error: string | null }> = ({ error }) => {
-        if (!error) return null;
-        return (
-            <div className="p-4 bg-red-900/50 border border-red-700 rounded-lg text-center">
-                <p className="font-bold text-red-200">Error Loading Data</p>
-                <p className="text-sm text-red-300 mt-1">{error}</p>
-            </div>
-        )
-    }
-
     const renderUsersView = () => (
         <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
             <div className="flex justify-between items-center mb-4">
@@ -399,61 +434,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
             </div>
             <input type="text" placeholder={`Search ${userView}...`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full max-w-sm bg-slate-700 p-2 rounded-md text-white mb-4" />
             
-            {isLoading ? <p>Loading...</p> : (
-                <>
-                    {userView === 'agents' && (
-                        loadErrors.agents ? <ErrorDisplay error={loadErrors.agents} /> :
-                        <div className="flow-root">
-                            <table className="min-w-full divide-y divide-slate-700">
-                                <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Contact</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Circle</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Members</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Commission</th></tr></thead>
-                                <tbody className="divide-y divide-slate-700">
-                                    {(paginatedItems as (Agent & { memberCount: number, commission: number })[]).map(agent => (
-                                        <tr key={agent.id}>
-                                            <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">{agent.name}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.email}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.circle}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.memberCount}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">${agent.commission.toFixed(2)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                    {userView === 'members' && (
-                        loadErrors.members ? <ErrorDisplay error={loadErrors.members} /> :
-                        <MemberList members={(paginatedItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={(uid) => setViewingProfileId(uid)} onStartChat={(user) => handleStartChat(user)}/>
-                    )}
-                    {userView === 'roles' && (
-                         loadErrors['all users'] ? <ErrorDisplay error={loadErrors['all users']} /> :
-                         <div className="flow-root">
-                            <table className="min-w-full divide-y divide-slate-700">
-                                <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Email</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Current Role</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Last Seen</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Change Role To</th></tr></thead>
-                                <tbody className="divide-y divide-slate-700">
-                                    {(paginatedItems as User[]).map(u => (
-                                        <tr key={u.id}>
-                                            <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">{u.name}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{u.email}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400 capitalize">{u.role}</td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">
-                                                {u.lastSeen ? formatTimeAgo(u.lastSeen.toDate().toISOString()) : 'N/A'}
-                                            </td>
-                                            <td className="whitespace-nowrap px-3 py-4 text-sm">
-                                                <select value={u.role} onChange={(e) => handleRoleChangeRequest(u, e.target.value as User['role'])} className="bg-slate-700 text-white rounded-md p-1 border border-slate-600 focus:ring-green-500 focus:border-green-500">
-                                                    <option value="member">Member</option>
-                                                    <option value="agent">Agent</option>
-                                                    <option value="admin">Admin</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                    <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} itemsPerPage={ITEMS_PER_PAGE} />
-                </>
-             )}
+            <>
+                {userView === 'agents' && (
+                    <div className="flow-root">
+                        <table className="min-w-full divide-y divide-slate-700">
+                            <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Contact</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Circle</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Members</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Commission</th></tr></thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {(paginatedItems as (Agent & { memberCount: number, commission: number })[]).map(agent => (
+                                    <tr key={agent.id}>
+                                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
+                                            <button onClick={() => setViewingProfileId(agent.id)} className="hover:underline">{agent.name}</button>
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.email}</td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.circle}</td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.memberCount}</td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">${agent.commission.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                {userView === 'members' && (
+                    <MemberList members={(paginatedItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={setViewingProfileId} onStartChat={(user) => handleStartChat(user)}/>
+                )}
+                {userView === 'roles' && (
+                     <div className="flow-root">
+                        <table className="min-w-full divide-y divide-slate-700">
+                            <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Email</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Current Role</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Last Seen</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Change Role To</th></tr></thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {(paginatedItems as User[]).map(u => (
+                                    <tr key={u.id}>
+                                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
+                                            <button onClick={() => setViewingProfileId(u.id)} className="hover:underline">{u.name}</button>
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{u.email}</td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400 capitalize">{u.role}</td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">
+                                            {u.lastSeen ? formatTimeAgo(u.lastSeen.toDate().toISOString()) : 'N/A'}
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm">
+                                            <select value={u.role} onChange={(e) => handleRoleChangeRequest(u, e.target.value as User['role'])} className="bg-slate-700 text-white rounded-md p-1 border border-slate-600 focus:ring-green-500 focus:border-green-500">
+                                                <option value="member">Member</option>
+                                                <option value="agent">Agent</option>
+                                                <option value="admin">Admin</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} itemsPerPage={ITEMS_PER_PAGE} />
+            </>
         </div>
     );
 
@@ -463,11 +497,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
             case 'users': return renderUsersView();
             case 'feed': return <PostsFeed user={user} filter="all" isAdminView onViewProfile={setViewingProfileId} />;
             case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
-            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg">{loadErrors.reports ? <ErrorDisplay error={loadErrors.reports} /> : <ReportsView reports={reports} />}</div>;
+            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={setViewingProfileId} /></div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;
-            case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} />;
+            case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId} />;
             default: return renderDashboardView();
         }
+    };
+
+    const mainContent = () => {
+        if (isInitialLoading) {
+            return (
+                <div className="flex flex-col items-center justify-center p-12 bg-slate-800 rounded-lg">
+                    <LoaderIcon className="h-12 w-12 text-green-500 animate-spin" />
+                    <p className="mt-4 text-lg text-gray-300">Loading dashboard data...</p>
+                </div>
+            );
+        }
+
+        if (loadingErrors.length > 0) {
+            return (
+                <div className="p-6 bg-red-900/50 border border-red-700 rounded-lg text-center">
+                    <h2 className="text-2xl font-bold text-red-400">Data Loading Error</h2>
+                    <p className="mt-2 text-gray-300">Some essential data could not be loaded, which may cause the dashboard to appear empty or incomplete. This is often due to account permissions or a network issue.</p>
+                    <ul className="mt-4 text-left bg-slate-900/50 p-4 rounded-md space-y-2">
+                        {loadingErrors.map((err, i) => (
+                            <li key={i} className="text-red-300 text-sm list-disc list-inside">{err}</li>
+                        ))}
+                    </ul>
+                    <p className="mt-4 text-gray-400 text-sm">Please try refreshing the page. If the problem persists, contact your system administrator to verify your account permissions.</p>
+                </div>
+            );
+        }
+        return renderActiveView();
     };
 
   return (
@@ -500,7 +561,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         </div>
 
        <div className="mt-6">
-            {renderActiveView()}
+            {mainContent()}
        </div>
     </div>
   );

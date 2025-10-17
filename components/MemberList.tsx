@@ -157,7 +157,13 @@ export const MemberList: React.FC<MemberListProps> = ({ members, isAdminView = f
                           title="Warning: An account with this email already exists." 
                         />
                       )}
-                       <span>{member.full_name}</span>
+                       <button 
+                        onClick={(e) => { e.stopPropagation(); onViewProfile && member.uid && onViewProfile(member.uid); }} 
+                        className="hover:underline disabled:no-underline disabled:cursor-default" 
+                        disabled={!onViewProfile || !member.uid}
+                       >
+                         {member.full_name}
+                       </button>
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">

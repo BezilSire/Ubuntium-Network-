@@ -15,7 +15,8 @@ import { ConfirmationDialog } from './ConfirmationDialog';
 
 interface PostsFeedProps {
   user: User;
-  filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities';
+  filter?: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities';
+  authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;
 }
@@ -75,7 +76,7 @@ export const PostItem: React.FC<{
 };
 
 
-export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter, isAdminView = false, onViewProfile }) => {
+export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter, authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newPostContent, setNewPostContent] = useState('');
@@ -88,12 +89,25 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter, isAdminView 
 
   useEffect(() => {
     setIsLoading(true);
-    const unsubscribe = api.listenForPosts(filter, (fetchedPosts) => {
-      setPosts(fetchedPosts);
-      setIsLoading(false);
-    });
+    let unsubscribe: () => void;
+    if (authorId) {
+        unsubscribe = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
+            setPosts(fetchedPosts);
+            setIsLoading(false);
+        });
+    } else if (filter) {
+        unsubscribe = api.listenForPosts(filter, (fetchedPosts) => {
+            setPosts(fetchedPosts);
+            setIsLoading(false);
+        });
+    } else {
+        setPosts([]);
+        setIsLoading(false);
+        unsubscribe = () => {};
+    }
+
     return () => unsubscribe();
-  }, [filter]);
+  }, [filter, authorId]);
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,7 +182,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter, isAdminView 
           />
           <div className="flex justify-between items-center mt-2">
             <div>
-              {filter === 'all' && (
+              {(filter === 'all' || authorId) && (
                 <div className="flex items-center space-x-4 flex-wrap gap-y-2">
                     <label className="flex items-center space-x-2 text-sm text-gray-300">
                         <input type="radio" name="postType" value="general" checked={newPostType === 'general'} onChange={() => setNewPostType('general')} className="text-green-600 bg-slate-900 border-slate-600 focus:ring-green-500"/>
@@ -203,7 +217,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter, isAdminView 
           ))}
         </div>
       ) : (
-        <p className="text-center text-gray-400 py-8">No posts found in this category.</p>
+        <p className="text-center text-gray-400 py-8">{authorId ? "You haven't made any posts yet." : "No posts found in this category."}</p>
       )}
 
       {postToEdit && (

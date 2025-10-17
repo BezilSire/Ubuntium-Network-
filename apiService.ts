@@ -571,14 +571,6 @@ export const api = {
     }
   },
 
-  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void): () => void => {
-    const q = query(postsCollection, where("authorId", "==", authorId), orderBy('date', 'desc'), limit(50));
-    return onSnapshot(q, (snapshot) => {
-        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        callback(posts);
-    });
-  },
-
   getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
     const q = query(postsCollection, where("authorId", "==", authorId), orderBy("date", "desc"));
     const snapshot = await getDocs(q);
@@ -747,27 +739,17 @@ export const api = {
     return [];
   },
   
-  listenForConversations: (
-    userId: string, 
-    callback: (convos: Conversation[]) => void,
-    onError: (error: Error) => void
-  ): () => void => {
+  listenForConversations: (userId: string, callback: (convos: Conversation[]) => void): () => void => {
       const q = query(conversationsCollection, where('members', 'array-contains', userId));
-      return onSnapshot(q, 
-        (snapshot) => {
-            const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-            convos.sort((a, b) => {
-                const timeA = a.lastMessageTimestamp?.toDate().getTime() || 0;
-                const timeB = b.lastMessageTimestamp?.toDate().getTime() || 0;
-                return timeB - timeA;
-            });
-            callback(convos);
-        },
-        (error) => {
-            console.error("Firestore listener error (conversations):", error);
-            onError(error);
-        }
-      );
+      return onSnapshot(q, (snapshot) => {
+          const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
+          convos.sort((a, b) => {
+              const timeA = a.lastMessageTimestamp?.toDate().getTime() || 0;
+              const timeB = b.lastMessageTimestamp?.toDate().getTime() || 0;
+              return timeB - timeA;
+          });
+          callback(convos);
+      });
   },
 
   listenForMessages: (convoId: string, callback: (msgs: Message[]) => void): () => void => {

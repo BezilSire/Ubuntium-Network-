@@ -19,6 +19,7 @@ import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { PublicProfile } from './PublicProfile';
 import { BellIcon } from './icons/BellIcon';
 import { NotificationsPage } from './NotificationsPage';
+import { FileTextIcon } from './icons/FileTextIcon';
 
 
 interface MemberDashboardProps {
@@ -28,7 +29,7 @@ interface MemberDashboardProps {
   unreadCount: number;
 }
 
-type MemberView = 'dashboard' | 'connect' | 'profile' | 'notifications';
+type MemberView = 'dashboard' | 'connect' | 'profile' | 'notifications' | 'myPosts';
 type FeedFilter = 'all' | 'proposals' | 'offers' | 'opportunities';
 
 const DashboardView: React.FC<{ 
@@ -224,14 +225,21 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
 
   useEffect(() => {
     if (user.status === 'active') {
-        const unsubscribe = api.listenForConversations(user.id, (conversations) => {
-            setConversations(conversations);
-            const count = conversations.filter(c => !c.readBy.includes(user.id) && c.lastMessageSenderId !== user.id).length;
-            setUnreadChatCount(count);
-        });
+        const unsubscribe = api.listenForConversations(
+            user.id, 
+            (conversations) => {
+                setConversations(conversations);
+                const count = conversations.filter(c => !c.readBy.includes(user.id) && c.lastMessageSenderId !== user.id).length;
+                setUnreadChatCount(count);
+            },
+            (error) => {
+                console.error("Failed to load conversations:", error);
+                addToast("Could not load your conversations.", "error");
+            }
+        );
         return () => unsubscribe();
     }
-  }, [user.id, user.status]);
+  }, [user.id, user.status, addToast]);
   
   // Clear the initial chat target when navigating away from the connect page
   useEffect(() => {
@@ -272,8 +280,10 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
           case 'NEW_MEMBER':
           case 'NEW_POST_OPPORTUNITY':
           case 'NEW_POST_PROPOSAL':
+          case 'NEW_POST_OFFER':
+          case 'NEW_POST_GENERAL':
               // For post likes, navigate to the liker's profile. For others, navigate to the subject's profile.
-              const profileId = item.type === 'POST_LIKE' ? item.causerId : item.link;
+              const profileId = item.itemType === 'notification' ? item.causerId : item.link;
               setViewingProfileId(profileId);
               break;
           default:
@@ -293,16 +303,29 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
     );
   }
 
+  const renderMyPostsView = () => (
+    <div className="animate-fade-in">
+        <h1 className="text-3xl font-bold text-white mb-6">My Posts</h1>
+        <PostsFeed 
+            user={user}
+            authorId={user.id}
+            onViewProfile={setViewingProfileId}
+        />
+    </div>
+  );
+
   const renderContent = () => {
     switch (view) {
         case 'dashboard':
             return <DashboardView user={user} broadcasts={broadcasts} onUpdateUser={onUpdateUser} onViewProfile={setViewingProfileId} />;
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
+        case 'myPosts':
+            return renderMyPostsView();
         case 'profile':
             return <MemberProfile memberId={user.member_id} currentUserId={user.id} onBack={() => setView('dashboard')} onUpdateUser={onUpdateUser} />;
         case 'notifications':
-            return <NotificationsPage user={user} onNavigate={handleNavigate} />;
+            return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId}/>;
         default:
             return null;
     }
@@ -315,6 +338,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
                 <TabButton icon={<LayoutDashboardIcon/>} label="Dashboard" isActive={view === 'dashboard'} onClick={() => setView('dashboard')} />
                 <TabButton icon={<MessageSquareIcon/>} label="Connect" count={unreadChatCount} isActive={view === 'connect'} onClick={() => setView('connect')} />
                 <TabButton icon={<BellIcon/>} label="Notifications" count={unreadCount} isActive={view === 'notifications'} onClick={() => setView('notifications')} />
+                <TabButton icon={<FileTextIcon/>} label="My Posts" isActive={view === 'myPosts'} onClick={() => setView('myPosts')} />
                 <TabButton icon={<UserCircleIcon/>} label="My Profile" isActive={view === 'profile'} onClick={() => setView('profile')} />
             </nav>
         </div>
