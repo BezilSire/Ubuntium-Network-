@@ -102,7 +102,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsProcessingAuth(true);
     try {
       await api.signup(credentials.name, credentials.email, credentials.password, credentials.circle);
-      addToast(`Account created! Please check your email to verify your account.`, 'success');
+      addToast(`Account created successfully!`, 'success');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
       addToast(`Signup failed: ${errorMessage}`, 'error');
@@ -116,7 +116,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsProcessingAuth(true);
     try {
         await api.memberSignup(memberData, password);
-        addToast(`Registration submitted! Please verify your email. An admin will review it shortly.`, 'success');
+        addToast(`Registration submitted! An admin will review it shortly.`, 'success');
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         addToast(`Signup failed: ${errorMessage}`, 'error');
