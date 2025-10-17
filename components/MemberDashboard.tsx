@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MemberUser, Member, Broadcast, Post, User, Conversation } from '../types';
+import { MemberUser, Member, Broadcast, Post, User, Conversation, NotificationItem } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { MegaphoneIcon } from './icons/MegaphoneIcon';
@@ -17,15 +17,18 @@ import { LayoutDashboardIcon } from './icons/LayoutDashboardIcon';
 import { ConnectPage } from './ConnectPage';
 import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { PublicProfile } from './PublicProfile';
+import { BellIcon } from './icons/BellIcon';
+import { NotificationsPage } from './NotificationsPage';
 
 
 interface MemberDashboardProps {
   user: MemberUser;
   broadcasts: Broadcast[];
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
+  unreadCount: number;
 }
 
-type MemberView = 'dashboard' | 'connect' | 'profile';
+type MemberView = 'dashboard' | 'connect' | 'profile' | 'notifications';
 type FeedFilter = 'all' | 'proposals' | 'offers' | 'opportunities';
 
 const DashboardView: React.FC<{ 
@@ -209,20 +212,22 @@ const DashboardView: React.FC<{
     );
 }
 
-export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser }) => {
+export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount }) => {
   const [view, setView] = useState<MemberView>('dashboard');
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const { addToast } = useToast();
   
   const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   
 
   useEffect(() => {
     if (user.status === 'active') {
         const unsubscribe = api.listenForConversations(user.id, (conversations) => {
+            setConversations(conversations);
             const count = conversations.filter(c => !c.readBy.includes(user.id) && c.lastMessageSenderId !== user.id).length;
-            setUnreadCount(count);
+            setUnreadChatCount(count);
         });
         return () => unsubscribe();
     }
@@ -251,6 +256,30 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
       }
   };
 
+  const handleNavigate = (item: NotificationItem) => {
+      switch (item.type) {
+          case 'NEW_MESSAGE':
+              const convo = conversations.find(c => c.id === item.link);
+              if (convo) {
+                  setChatTarget(convo);
+                  setView('connect');
+              } else {
+                  addToast("Could not find the conversation.", "error");
+              }
+              break;
+          case 'POST_LIKE':
+          case 'NEW_MEMBER':
+          case 'NEW_POST_OPPORTUNITY':
+          case 'NEW_POST_PROPOSAL':
+              // For post likes, navigate to the liker's profile. For others, navigate to the subject's profile.
+              const profileId = item.type === 'POST_LIKE' ? item.causerId : item.link;
+              setViewingProfileId(profileId);
+              break;
+          default:
+              addToast("Navigation for this notification is not available.", "info");
+      }
+  };
+
   if (viewingProfileId) {
     return (
         <PublicProfile 
@@ -271,6 +300,8 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
         case 'profile':
             return <MemberProfile memberId={user.member_id} currentUserId={user.id} onBack={() => setView('dashboard')} onUpdateUser={onUpdateUser} />;
+        case 'notifications':
+            return <NotificationsPage user={user} onNavigate={handleNavigate} />;
         default:
             return null;
     }
@@ -281,7 +312,8 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         <div className="mb-6 border-b border-slate-700">
             <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                 <TabButton icon={<LayoutDashboardIcon/>} label="Dashboard" isActive={view === 'dashboard'} onClick={() => setView('dashboard')} />
-                <TabButton icon={<MessageSquareIcon/>} label="Connect" count={unreadCount} isActive={view === 'connect'} onClick={() => setView('connect')} />
+                <TabButton icon={<MessageSquareIcon/>} label="Connect" count={unreadChatCount} isActive={view === 'connect'} onClick={() => setView('connect')} />
+                <TabButton icon={<BellIcon/>} label="Notifications" count={unreadCount} isActive={view === 'notifications'} onClick={() => setView('notifications')} />
                 <TabButton icon={<UserCircleIcon/>} label="My Profile" isActive={view === 'profile'} onClick={() => setView('profile')} />
             </nav>
         </div>

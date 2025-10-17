@@ -15,7 +15,7 @@ import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 
-type AgentView = 'dashboard' | 'members' | 'profile';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
 const App: React.FC = () => {
   const { currentUser, isLoadingAuth, logout, updateUser } = useAuth();
@@ -23,6 +23,7 @@ const App: React.FC = () => {
   const { addToast } = useToast();
   const isOnline = useOnlineStatus();
   const [hasSyncedOnConnect, setHasSyncedOnConnect] = useState(true);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // State for Agent Dashboard UI
   const [agentView, setAgentView] = useState<AgentView>('dashboard');
@@ -44,6 +45,13 @@ const App: React.FC = () => {
 
     if (currentUser) {
         fetchBroadcasts();
+        const unsubNotifications = api.listenForNotifications(currentUser.id, (notifications) => {
+            const unread = notifications.filter(n => !n.read).length;
+            setUnreadNotificationCount(unread);
+        });
+        return () => unsubNotifications();
+    } else {
+        setUnreadNotificationCount(0);
     }
   }, [currentUser, addToast]);
 
@@ -114,6 +122,7 @@ const App: React.FC = () => {
                         broadcasts={broadcasts} 
                         onSendBroadcast={handleSendBroadcast} 
                         onUpdateUser={updateUser}
+                        unreadCount={unreadNotificationCount}
                     />
                 </main>
             );
@@ -124,6 +133,7 @@ const App: React.FC = () => {
                         user={currentUser as MemberUser} 
                         broadcasts={broadcasts} 
                         onUpdateUser={updateUser}
+                        unreadCount={unreadNotificationCount}
                     />
                 </main>
             );
@@ -138,6 +148,7 @@ const App: React.FC = () => {
                         isCollapsed={isSidebarCollapsed}
                         onToggle={() => setIsSidebarCollapsed(prev => !prev)}
                         onLogout={handleLogoutWithReset}
+                        unreadCount={unreadNotificationCount}
                       />
                     </div>
                     <main className={`pb-24 md:pb-0 md:transition-[margin-left] md:duration-300 md:ease-in-out ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
@@ -146,6 +157,7 @@ const App: React.FC = () => {
                           broadcasts={broadcasts} 
                           onUpdateUser={updateUser}
                           activeView={agentView}
+                          setActiveView={setAgentView}
                         />
                     </main>
                     <div className="md:hidden">
@@ -154,6 +166,7 @@ const App: React.FC = () => {
                             activeView={agentView}
                             setActiveView={setAgentView}
                             onLogout={handleLogoutWithReset}
+                            unreadCount={unreadNotificationCount}
                         />
                     </div>
                   </>

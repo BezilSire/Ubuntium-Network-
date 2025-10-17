@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Admin, Agent, Member, Broadcast, Report, User, MemberUser, Conversation } from '../types';
+import { Admin, Agent, Member, Broadcast, Report, User, MemberUser, Conversation, NotificationItem } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { MemberList } from './MemberList';
@@ -22,6 +22,8 @@ import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { InboxIcon } from './icons/InboxIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { PublicProfile } from './PublicProfile';
+import { BellIcon } from './icons/BellIcon';
+import { NotificationsPage } from './NotificationsPage';
 
 
 const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; description?: string; }> = ({ icon, title, value, description }) => (
@@ -35,7 +37,7 @@ const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string |
   </div>
 );
 
-type AdminView = 'dashboard' | 'users' | 'feed' | 'connect' | 'reports' | 'profile';
+type AdminView = 'dashboard' | 'users' | 'feed' | 'connect' | 'reports' | 'profile' | 'notifications';
 type UserSubView = 'agents' | 'members' | 'roles';
 
 interface AdminDashboardProps {
@@ -43,9 +45,10 @@ interface AdminDashboardProps {
   broadcasts: Broadcast[];
   onSendBroadcast: (message: string) => Promise<void>;
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
+  unreadCount: number;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser, unreadCount }) => {
   const [view, setView] = useState<AdminView>('dashboard');
   const [userView, setUserView] = useState<UserSubView>('agents');
   
@@ -57,6 +60,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [agents, setAgents] = useState<Agent[]>([]);
   const [pendingMembers, setPendingMembers] = useState<Member[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<Record<string, string | null>>({});
@@ -85,6 +89,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     const unsubAgents = api.listenForAllAgents(setAgents, (e) => handleError('agents', e));
     const unsubPending = api.listenForPendingMembers(setPendingMembers, (e) => handleError('pending members', e));
     const unsubReports = api.listenForReports(setReports, (e) => handleError('reports', e));
+    const unsubConversations = api.listenForConversations(user.id, setConversations);
     
     setIsLoading(false);
 
@@ -94,8 +99,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         unsubAgents();
         unsubPending();
         unsubReports();
+        unsubConversations();
     };
-  }, [addToast]);
+  }, [addToast, user.id]);
 
   // Clear the initial chat target when navigating away from the connect page
   useEffect(() => {
@@ -113,6 +119,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     } catch (error) {
         addToast("Failed to start chat.", "error");
     }
+  };
+  
+  const handleNavigate = (item: NotificationItem) => {
+      switch (item.type) {
+          case 'NEW_MESSAGE':
+              const convo = conversations.find(c => c.id === item.link);
+              if (convo) {
+                  setChatTarget(convo);
+                  setView('connect');
+              } else {
+                  addToast("Could not find the conversation.", "error");
+              }
+              break;
+          case 'POST_LIKE':
+          case 'NEW_MEMBER':
+          case 'NEW_POST_OPPORTUNITY':
+          case 'NEW_POST_PROPOSAL':
+              setViewingProfileId(item.link);
+              break;
+          default:
+              addToast("Navigation for this notification is not available.", "info");
+      }
   };
 
   if (viewingProfileId) {
@@ -436,6 +464,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
             case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
             case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg">{loadErrors.reports ? <ErrorDisplay error={loadErrors.reports} /> : <ReportsView reports={reports} />}</div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;
+            case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} />;
             default: return renderDashboardView();
         }
     };
@@ -462,6 +491,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                     <TabButton label="Users" icon={<UsersIcon/>} isActive={view === 'users'} onClick={() => setView('users')} />
                     <TabButton label="Feed" icon={<MessageSquareIcon/>} isActive={view === 'feed'} onClick={() => setView('feed')} />
                     <TabButton label="Connect" icon={<InboxIcon/>} isActive={view === 'connect'} onClick={() => setView('connect')} />
+                    <TabButton label="Notifications" icon={<BellIcon />} count={unreadCount} isActive={view === 'notifications'} onClick={() => setView('notifications')} />
                     <TabButton label="Reports" icon={<AlertTriangleIcon/>} count={newReportsCount} isActive={view === 'reports'} onClick={() => setView('reports')} />
                     <TabButton label="Profile" icon={<UserCircleIcon/>} isActive={view === 'profile'} onClick={() => setView('profile')} />
                 </nav>

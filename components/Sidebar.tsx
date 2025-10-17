@@ -7,8 +7,9 @@ import { UserCircleIcon } from './icons/UserCircleIcon';
 import { LogOutIcon } from './icons/LogOutIcon';
 import { ChevronDoubleLeftIcon } from './icons/ChevronDoubleLeftIcon';
 import { ChevronDoubleRightIcon } from './icons/ChevronDoubleRightIcon';
+import { BellIcon } from './icons/BellIcon';
 
-type AgentView = 'dashboard' | 'members' | 'profile';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
 interface SidebarProps {
   agent: Agent;
@@ -17,6 +18,7 @@ interface SidebarProps {
   onLogout: () => void;
   isCollapsed: boolean;
   onToggle: () => void;
+  unreadCount: number;
 }
 
 const NavItem: React.FC<{
@@ -25,7 +27,8 @@ const NavItem: React.FC<{
   isActive: boolean;
   onClick: () => void;
   isCollapsed: boolean;
-}> = ({ icon, label, isActive, onClick, isCollapsed }) => (
+  count?: number;
+}> = ({ icon, label, isActive, onClick, isCollapsed, count }) => (
   <li>
     <a
       href="#"
@@ -34,7 +37,7 @@ const NavItem: React.FC<{
         onClick();
       }}
       title={isCollapsed ? label : undefined}
-      className={`flex items-center p-3 rounded-lg transition-colors duration-200 ${
+      className={`relative flex items-center p-3 rounded-lg transition-colors duration-200 ${
         isActive
           ? 'bg-green-600 text-white shadow-lg'
           : 'text-gray-300 hover:bg-slate-700 hover:text-white'
@@ -42,11 +45,16 @@ const NavItem: React.FC<{
     >
       <span className="h-6 w-6 flex-shrink-0">{icon}</span>
       {!isCollapsed && <span className="ml-3 font-medium whitespace-nowrap">{label}</span>}
+      {count !== undefined && count > 0 && (
+         <span className={`absolute top-1.5 flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full ${isCollapsed ? 'right-1.5' : 'right-3'}`}>
+            {count}
+        </span>
+      )}
     </a>
   </li>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ agent, activeView, setActiveView, onLogout, isCollapsed, onToggle }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ agent, activeView, setActiveView, onLogout, isCollapsed, onToggle, unreadCount }) => {
   return (
     <aside className={`flex-shrink-0 bg-slate-800 p-4 flex flex-col h-screen fixed top-0 left-0 transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
       <div className={`flex items-center space-x-2 pb-6 border-b border-slate-700 ${isCollapsed ? 'justify-center' : ''}`}>
@@ -68,6 +76,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ agent, activeView, setActiveVi
             isActive={activeView === 'members'}
             onClick={() => setActiveView('members')}
             isCollapsed={isCollapsed}
+          />
+           <NavItem
+            icon={<BellIcon />}
+            label="Notifications"
+            isActive={activeView === 'notifications'}
+            onClick={() => setActiveView('notifications')}
+            isCollapsed={isCollapsed}
+            count={unreadCount}
           />
           <NavItem
             icon={<UserCircleIcon />}

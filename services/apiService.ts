@@ -31,7 +31,7 @@ import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp
 import { auth, db, rtdb } from './firebase';
 import { 
     User, Agent, Member, NewMember, Broadcast, Post, NewPublicMemberData, MemberUser, 
-    Conversation, Message, Report 
+    Conversation, Message, Report, Notification, Activity
 } from '../types';
 import { generateAgentCode } from '../utils';
 import { generateWelcomeMessage } from './geminiService';
@@ -43,6 +43,8 @@ const broadcastsCollection = collection(db, 'broadcasts');
 const postsCollection = collection(db, 'posts');
 const conversationsCollection = collection(db, 'conversations');
 const reportsCollection = collection(db, 'reports');
+const notificationsCollection = collection(db, 'notifications');
+const activityFeedCollection = collection(db, 'activity_feed');
 
 const getUserProfile = async (uid: string): Promise<User | null> => {
     const userDocRef = doc(db, 'users', uid);
@@ -314,6 +316,8 @@ export const api = {
   },
 
   approveMember: async (member: Member): Promise<void> => {
+      if (!member.uid) throw new Error("Member does not have a user account to approve.");
+      
       const welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
       const batch = writeBatch(db);
 
@@ -324,12 +328,22 @@ export const api = {
           membership_card_id: `UGC-M-${Date.now()}`
       });
 
-      if (member.uid) {
-        const userRef = doc(db, 'users', member.uid);
-        batch.update(userRef, { status: 'active', distress_calls_available: 1 });
-      }
+      const userRef = doc(db, 'users', member.uid);
+      batch.update(userRef, { status: 'active', distress_calls_available: 1 });
 
       await batch.commit();
+
+      // Create a global activity feed item for the new member
+      const activity: Omit<Activity, 'id'> = {
+          type: 'NEW_MEMBER',
+          message: `${member.full_name} has joined the commons!`,
+          link: member.uid, // Link to their user profile
+          causerId: member.uid,
+          causerName: member.full_name,
+          causerCircle: member.circle,
+          timestamp: Timestamp.now(),
+      };
+      await addDoc(activityFeedCollection, activity);
   },
 
   rejectMember: async (member: Member): Promise<void> => {
@@ -466,7 +480,21 @@ export const api = {
           upvotes: [],
           type,
       };
-      await addDoc(postsCollection, newPost);
+      const postRef = await addDoc(postsCollection, newPost);
+
+      // Create a global activity item if it's a proposal or opportunity
+      if (type === 'proposal' || type === 'opportunity') {
+          const activity: Omit<Activity, 'id'> = {
+              type: type === 'proposal' ? 'NEW_POST_PROPOSAL' : 'NEW_POST_OPPORTUNITY',
+              message: `${author.name} created a new ${type}.`,
+              link: postRef.id,
+              causerId: author.id,
+              causerName: author.name,
+              causerCircle: author.circle || 'Unknown',
+              timestamp: Timestamp.now(),
+          };
+          await addDoc(activityFeedCollection, activity);
+      }
   },
 
   createDistressPost: async (content: string): Promise<User> => {
@@ -531,10 +559,27 @@ export const api = {
       const postDoc = await getDoc(postRef);
       if (postDoc.exists()) {
           const post = postDoc.data() as Post;
+          const user = await getUserProfile(userId);
+          if (!user) return;
+
           if (post.upvotes.includes(userId)) {
               await updateDoc(postRef, { upvotes: arrayRemove(userId) });
           } else {
               await updateDoc(postRef, { upvotes: arrayUnion(userId) });
+              // Create a notification for the post author, if it's not the author themselves liking it
+              if (post.authorId !== userId) {
+                  const notification: Omit<Notification, 'id'> = {
+                      userId: post.authorId,
+                      type: 'POST_LIKE',
+                      message: `${user.name} liked your post.`,
+                      link: postId,
+                      causerId: userId,
+                      causerName: user.name,
+                      timestamp: Timestamp.now(),
+                      read: false,
+                  };
+                  await addDoc(notificationsCollection, notification);
+              }
           }
       }
   },
@@ -693,7 +738,7 @@ export const api = {
       });
   },
 
-  sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>): Promise<void> => {
+  sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>, conversation: Conversation): Promise<void> => {
       const messagesRef = collection(db, 'conversations', convoId, 'messages');
       const timestamp = Timestamp.now();
       await addDoc(messagesRef, { ...message, timestamp });
@@ -705,6 +750,22 @@ export const api = {
           lastMessageTimestamp: timestamp,
           readBy: [message.senderId]
       });
+
+      // Create notifications for other members in the chat
+      const recipients = conversation.members.filter(id => id !== message.senderId);
+      for (const recipientId of recipients) {
+          const notification: Omit<Notification, 'id'> = {
+              userId: recipientId,
+              type: 'NEW_MESSAGE',
+              message: `New message from ${message.senderName}${conversation.isGroup ? ` in ${conversation.name}` : ''}`,
+              link: convoId,
+              causerId: message.senderId,
+              causerName: message.senderName,
+              timestamp,
+              read: false,
+          };
+          await addDoc(notificationsCollection, notification);
+      }
   },
   
   startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
@@ -778,4 +839,37 @@ export const api = {
       return updateDoc(convoRef, { members: arrayRemove(userId) });
   },
 
+  // Notifications
+  listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void): () => void => {
+      const q = query(notificationsCollection, where('userId', '==', userId), orderBy('timestamp', 'desc'), limit(50));
+      return onSnapshot(q, (snapshot) => {
+          const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+          callback(notifications);
+      });
+  },
+
+  listenForActivity: (callback: (activities: Activity[]) => void): () => void => {
+      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
+      return onSnapshot(q, (snapshot) => {
+          const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
+          callback(activities);
+      });
+  },
+  
+  markNotificationAsRead: (notificationId: string): Promise<void> => {
+      const notifRef = doc(db, 'notifications', notificationId);
+      return updateDoc(notifRef, { read: true });
+  },
+  
+  markAllNotificationsAsRead: async (userId: string): Promise<void> => {
+    const q = query(notificationsCollection, where('userId', '==', userId), where('read', '==', false));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return;
+
+    const batch = writeBatch(db);
+    snapshot.docs.forEach(doc => {
+        batch.update(doc.ref, { read: true });
+    });
+    await batch.commit();
+  },
 };

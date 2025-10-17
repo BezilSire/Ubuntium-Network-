@@ -40,7 +40,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, currentUse
     };
 
     try {
-        await api.sendMessage(conversation.id, message);
+        await api.sendMessage(conversation.id, message, conversation);
         setNewMessage('');
     } catch (error) {
         console.error("Failed to send message", error);

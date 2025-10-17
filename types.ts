@@ -147,3 +147,31 @@ export interface Report {
   date: string; // ISO
   status: 'new' | 'resolved';
 }
+
+// Personal, user-specific notifications
+export interface Notification {
+  id: string;
+  userId: string; // Recipient
+  type: 'NEW_MESSAGE' | 'POST_LIKE';
+  message: string;
+  link: string; // convoId or postId
+  causerId: string;
+  causerName: string;
+  timestamp: Timestamp;
+  read: boolean;
+}
+
+// Global activity feed items
+export interface Activity {
+  id: string;
+  type: 'NEW_MEMBER' | 'NEW_POST_PROPOSAL' | 'NEW_POST_OPPORTUNITY';
+  message: string;
+  link: string; // userId or postId
+  causerId: string;
+  causerName: string;
+  causerCircle: string;
+  timestamp: Timestamp;
+}
+
+// Merged type for the UI
+export type NotificationItem = (Notification & { itemType: 'notification' }) | (Activity & { itemType: 'activity' });

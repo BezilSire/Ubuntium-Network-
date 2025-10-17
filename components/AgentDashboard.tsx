@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Agent, Member, NewMember, Broadcast, User } from '../types';
+import { Agent, Member, NewMember, Broadcast, User, NotificationItem } from '../types';
 import { RegisterMemberForm } from './RegisterMemberForm';
 import { MemberList } from './MemberList';
 import { AgentProfile } from './AgentProfile';
@@ -13,14 +13,18 @@ import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { api } from '../services/apiService';
 import { exportToCsv } from '../utils';
 import { DownloadIcon } from './icons/DownloadIcon';
+import { NotificationsPage } from './NotificationsPage';
+import { PublicProfile } from './PublicProfile';
 
-type AgentView = 'dashboard' | 'members' | 'profile';
+
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
 interface AgentDashboardProps {
   user: Agent;
   broadcasts: Broadcast[];
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   activeView: AgentView;
+  setActiveView: (view: AgentView) => void;
 }
 
 const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; description: string }> = ({ icon, title, value, description }) => (
@@ -36,10 +40,11 @@ const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string |
   </div>
 );
 
-export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts, onUpdateUser, activeView }) => {
+export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts, onUpdateUser, activeView, setActiveView }) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
 
   // State for member list view
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,6 +96,15 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
     addToast('Your member data is being downloaded.', 'info');
   };
 
+  const handleNavigate = (item: NotificationItem) => {
+      // Agent does not have a connect/chat view, so we only handle profile views
+      if (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE') {
+          setViewingProfileId(item.link);
+      } else {
+          addToast('Navigation for this notification is not available in this view.', 'info');
+      }
+  };
+
   const totalMembers = members.length;
   const totalCommission = useMemo(() => {
     return members
@@ -99,6 +113,19 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
       .toFixed(2);
   }, [members]);
 
+  if (viewingProfileId) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8">
+        <PublicProfile 
+            userId={viewingProfileId} 
+            currentUserId={user.id} 
+            onBack={() => setViewingProfileId(null)}
+            onStartChat={() => addToast('Direct messaging is not available for agents.', 'info')}
+            onViewProfile={setViewingProfileId}
+        />
+      </div>
+    );
+  }
 
   const renderDashboardView = () => (
     <div className="space-y-8 animate-fade-in">
@@ -224,6 +251,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
   const renderProfileView = () => (
     <AgentProfile agent={user} onUpdateUser={onUpdateUser} />
   );
+  
+  const renderNotificationsView = () => (
+    <NotificationsPage user={user} onNavigate={handleNavigate} />
+  );
 
   const renderActiveView = () => {
     switch(activeView) {
@@ -233,6 +264,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
         return renderMembersView();
       case 'profile':
         return renderProfileView();
+      case 'notifications':
+        return renderNotificationsView();
       default:
         return renderDashboardView();
     }
