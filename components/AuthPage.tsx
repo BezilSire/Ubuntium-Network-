@@ -5,6 +5,7 @@ import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { NewPublicMemberData } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { PublicRegistrationPage } from './PublicRegistrationPage';
+import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 
 
 interface AuthPageProps {}
@@ -16,6 +17,7 @@ export const AuthPage: React.FC<AuthPageProps> = () => {
   const { login, agentSignup, memberSignup, sendPasswordReset } = useAuth();
   
   const [view, setView] = useState<AuthView>('login');
+  const [isPolicyVisible, setIsPolicyVisible] = useState(false);
   
   const handlePasswordReset = async (email: string) => {
     await sendPasswordReset(email);
@@ -54,6 +56,21 @@ export const AuthPage: React.FC<AuthPageProps> = () => {
         <div key={view} className="animate-fade-in">
             {renderContent()}
         </div>
+
+        <div className="text-center mt-8 text-xs text-gray-500 space-y-2">
+            <div className="flex justify-center items-center space-x-4">
+                <button onClick={() => setIsPolicyVisible(true)} className="hover:text-gray-300 transition-colors">
+                    Privacy Policy
+                </button>
+                <span>|</span>
+                <a href="mailto:support@globalcommons.app" className="hover:text-gray-300 transition-colors">
+                    Support
+                </a>
+            </div>
+            <p>© Ubuntium Global Commons 2025. All rights reserved.</p>
+        </div>
+
+        <PrivacyPolicyModal isOpen={isPolicyVisible} onClose={() => setIsPolicyVisible(false)} />
     </div>
   );
 };
