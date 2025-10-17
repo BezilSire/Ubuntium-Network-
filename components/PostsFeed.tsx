@@ -3,7 +3,7 @@ import { Post, User } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { formatTimeAgo } from '../utils';
-import { HeartIcon } from './icons/HeartIcon';
+import { ThumbsUpIcon } from './icons/ThumbsUpIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { EditPostModal } from './EditPostModal';
@@ -11,14 +11,12 @@ import { FlagIcon } from './icons/FlagIcon';
 import { ReportPostModal } from './ReportPostModal';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { UserCircleIcon } from './icons/UserCircleIcon';
-import { MessageCircleIcon } from './icons/MessageCircleIcon';
-import { RepeatIcon } from './icons/RepeatIcon';
-import { SendIcon } from './icons/SendIcon';
+
 
 interface PostsFeedProps {
   user: User;
-  // Fix: Added 'general' to the filter type to match the Post type definition.
-  filter?: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities' | 'general';
+  // Fix: Changed plural filter types to singular to match Post['type'].
+  filter?: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general';
   authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;
@@ -35,66 +33,52 @@ export const PostItem: React.FC<{
     isAdminView?: boolean;
 }> = 
 ({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, isAdminView }) => {
-    const { addToast } = useToast();
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
   
-    const handlePlaceholderClick = (feature: string) => {
-        addToast(`${feature} is not yet implemented.`, 'info');
-    };
-
     return (
-        <div className="flex space-x-3 p-4 border-b border-slate-800">
-            {/* Left column: Avatar and connector line */}
-            <div className="flex-shrink-0">
-                <div className="relative">
+        <div className="bg-slate-800 p-4 rounded-lg shadow-md space-y-3">
+            {/* Header */}
+            <div className="flex items-start space-x-3">
+                <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0">
                     <UserCircleIcon className="h-10 w-10 text-gray-400" />
-                    {/* Future: Add connector line here if needed */}
-                </div>
-            </div>
-
-            {/* Right column: Post content */}
-            <div className="flex-1">
-                <div className="flex justify-between items-center">
+                </button>
+                <div className="flex-1">
                     <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="font-semibold text-white hover:underline text-left">
                         {post.authorName}
                     </button>
-                    <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatTimeAgo(post.date)}</p>
+                    <p className="text-xs text-gray-500">{post.authorCircle} &bull; {formatTimeAgo(post.date)}</p>
                 </div>
-
-                <p className="my-1 text-gray-200 whitespace-pre-wrap">{post.content}</p>
-
-                {/* Action Icons */}
-                <div className="flex items-center space-x-6 mt-3 text-gray-400">
-                    <button onClick={() => onUpvote(post.id)} className={`flex items-center space-x-1.5 group ${hasUpvoted ? 'text-red-500' : ''}`}>
-                        <HeartIcon className={`h-5 w-5 group-hover:text-red-500 transition-colors ${hasUpvoted ? 'fill-current' : 'fill-none'}`} />
-                    </button>
-                    <button onClick={() => handlePlaceholderClick('Replying')} className="flex items-center space-x-1.5 group">
-                        <MessageCircleIcon className="h-5 w-5 group-hover:text-white transition-colors" />
-                    </button>
-                    <button onClick={() => handlePlaceholderClick('Reposting')} className="flex items-center space-x-1.5 group">
-                        <RepeatIcon className="h-5 w-5 group-hover:text-white transition-colors" />
-                    </button>
-                    <button onClick={() => handlePlaceholderClick('Sharing')} className="flex items-center space-x-1.5 group">
-                        <SendIcon className="h-5 w-5 group-hover:text-white transition-colors" />
-                    </button>
-                </div>
-                
-                {/* Stats */}
-                <div className="flex items-center space-x-4 text-xs text-gray-500 mt-2">
-                    <span>{(post.replies || []).length} replies</span>
-                    <span>•</span>
-                    <span>{post.upvotes.length} likes</span>
-                </div>
+                {(isOwnPost || isAdminView) && post.type !== 'distress' && (
+                    <div className="ml-auto flex items-center space-x-3 text-gray-500">
+                        {isOwnPost && (
+                            <button onClick={() => onEdit(post)} className="hover:text-white" title="Edit post"><PencilIcon className="h-4 w-4" /></button>
+                        )}
+                        <button onClick={() => onDelete(post)} className="hover:text-red-400" title="Delete post"><TrashIcon className="h-4 w-4" /></button>
+                    </div>
+                )}
             </div>
-             {(isOwnPost || isAdminView) && (
-                <div className="flex items-center space-x-3">
-                    {isOwnPost && post.type !== 'distress' && (
-                        <button onClick={() => onEdit(post)} className="text-gray-500 hover:text-white" title="Edit post"><PencilIcon className="h-4 w-4" /></button>
-                    )}
-                    <button onClick={() => onDelete(post)} className="text-gray-500 hover:text-red-400" title="Delete post"><TrashIcon className="h-4 w-4" /></button>
-                </div>
-            )}
+
+            {/* Content */}
+            <p className="text-gray-200 whitespace-pre-wrap">{post.content}</p>
+
+            {/* Footer */}
+            <div className="flex justify-between items-center pt-3 border-t border-slate-700">
+                <button 
+                    onClick={() => onUpvote(post.id)} 
+                    className={`flex items-center space-x-2 transition-colors ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                >
+                    <ThumbsUpIcon className={`h-5 w-5 ${hasUpvoted ? 'fill-current' : ''}`} />
+                    <span className="text-sm font-medium">{post.upvotes.length > 0 ? post.upvotes.length : ''}</span>
+                </button>
+                
+                {!isOwnPost && (
+                    <button onClick={() => onReport(post)} className="flex items-center space-x-2 text-gray-400 hover:text-red-400 transition-colors">
+                        <FlagIcon className="h-4 w-4" />
+                        <span className="text-sm">Report</span>
+                    </button>
+                )}
+            </div>
         </div>
     );
 };
@@ -173,11 +157,11 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
   };
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-4">
       {isLoading ? (
         <p className="text-center text-gray-400 py-12">Loading feed...</p>
       ) : posts.length > 0 ? (
-        <div className="space-y-0">
+        <div className="space-y-4">
           {posts.map(post => (
             <PostItem key={post.id} post={post} currentUser={user} onUpvote={handleUpvote} onDelete={setPostToDelete} onEdit={setPostToEdit} onReport={setPostToReport} isAdminView={isAdminView} onViewProfile={onViewProfile} />
           ))}

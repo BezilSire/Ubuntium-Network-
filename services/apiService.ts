@@ -553,7 +553,7 @@ export const api = {
       return await getUserProfile(currentUser.uid) as User;
   },
 
-  listenForPosts: (filter: 'all' | 'proposals' | 'distress' | 'offers' | 'opportunities' | 'general', callback: (posts: Post[]) => void): () => void => {
+  listenForPosts: (filter: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general', callback: (posts: Post[]) => void): () => void => {
     if (filter === 'all') {
         const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
         return onSnapshot(q, (snapshot) => {

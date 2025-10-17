@@ -10,7 +10,6 @@ import { PublicProfile } from './PublicProfile';
 import { NotificationsPage } from './NotificationsPage';
 import { MemberBottomNav } from './MemberBottomNav';
 import { NewPostModal } from './NewPostModal';
-import { SearchPage } from './SearchPage';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -20,7 +19,7 @@ interface MemberDashboardProps {
 }
 
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount }) => {
-  const [activeTab, setActiveTab] = useState<'home' | 'search' | 'activity' | 'profile'>('home');
+  const [activeView, setActiveView] = useState<'feed' | 'connect' | 'notifications' | 'profile'>('feed');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   
   const [unreadChatCount, setUnreadChatCount] = useState(0);
@@ -58,8 +57,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         const newConvo = await api.startChat(user.id, targetUserId, user.name, targetUser.name);
         setChatTarget(newConvo);
         setViewingProfileId(null);
-        // In the new UI, there is no 'connect' tab. We guide the user to their notifications/activity.
-        addToast("Chat started! You can find it in your activity feed.", "info");
+        setActiveView('connect');
       } catch (error) {
         addToast("Failed to start chat.", "error");
       }
@@ -69,9 +67,13 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
       switch (item.type) {
           case 'NEW_MESSAGE':
           case 'NEW_CHAT':
-              // The activity tab IS the conversation hub now.
-              setActiveTab('activity');
-              // We could potentially scroll to the conversation in a future update.
+              const convo = conversations.find(c => c.id === item.link);
+              if (convo) {
+                  setChatTarget(convo);
+                  setActiveView('connect');
+              } else {
+                 addToast("Could not find the conversation.", "error");
+              }
               break;
           case 'POST_LIKE':
           case 'NEW_MEMBER':
@@ -89,7 +91,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
 
   const handlePostCreated = () => {
     setIsNewPostOpen(false);
-    setActiveTab('home'); // Switch to home feed to see the new post
+    setActiveView('feed'); // Switch to home feed to see the new post
     addToast("Post created successfully!", "success");
   }
 
@@ -106,12 +108,12 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
   }
 
   const renderContent = () => {
-    switch (activeTab) {
-        case 'home':
+    switch (activeView) {
+        case 'feed':
             return <PostsFeed user={user} filter="all" onViewProfile={setViewingProfileId} />;
-        case 'search':
-            return <SearchPage />;
-        case 'activity':
+        case 'connect':
+            return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
+        case 'notifications':
             return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId}/>;
         case 'profile':
             return <MemberProfile memberId={user.member_id} currentUserId={user.id} onUpdateUser={onUpdateUser} onViewProfile={setViewingProfileId} />;
@@ -121,7 +123,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
   }
 
   return (
-    <div className="max-w-xl mx-auto pb-24">
+    <div className="max-w-4xl mx-auto pb-24">
         <NewPostModal 
             isOpen={isNewPostOpen}
             onClose={() => setIsNewPostOpen(false)}
@@ -143,10 +145,10 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         </div>
 
         <MemberBottomNav 
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            activeView={activeView}
+            setActiveView={setActiveView}
             onNewPostClick={() => setIsNewPostOpen(true)}
-            notificationCount={unreadCount}
+            notificationCount={unreadCount + unreadChatCount}
         />
     </div>
   );

@@ -1,66 +1,73 @@
 import React from 'react';
 import { HomeIcon } from './icons/HomeIcon';
-import { SearchIcon } from './icons/SearchIcon';
+import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { PlusCircleIcon } from './icons/PlusCircleIcon';
-import { HeartIcon } from './icons/HeartIcon';
+import { BellIcon } from './icons/BellIcon';
 import { UserIcon } from './icons/UserIcon';
 
-type ActiveTab = 'home' | 'search' | 'activity' | 'profile';
+type ActiveView = 'feed' | 'connect' | 'notifications' | 'profile';
 
 interface MemberBottomNavProps {
-  activeTab: ActiveTab;
-  setActiveTab: (tab: ActiveTab) => void;
+  activeView: ActiveView;
+  setActiveView: (view: ActiveView) => void;
   onNewPostClick: () => void;
   notificationCount: number;
 }
 
 const NavItem: React.FC<{
   icon: React.ReactNode;
+  label: string;
   isActive: boolean;
   onClick: () => void;
   hasNotification?: boolean;
-}> = ({ icon, isActive, onClick, hasNotification }) => (
+}> = ({ icon, label, isActive, onClick, hasNotification }) => (
   <button
     onClick={onClick}
-    className={`relative flex-1 flex justify-center items-center py-2 transition-colors duration-200 ${isActive ? 'text-white' : 'text-gray-500 hover:text-white'}`}
+    className={`relative flex-1 flex flex-col items-center justify-center py-2 transition-colors duration-200 h-16 rounded-lg ${isActive ? 'text-green-400 bg-slate-700' : 'text-gray-400 hover:text-white hover:bg-slate-700/50'}`}
   >
-    <div className="h-7 w-7">{icon}</div>
+    <div className="h-6 w-6 mb-1">{icon}</div>
+    <span className="text-xs truncate">{label}</span>
     {hasNotification && (
-        <span className="absolute top-2 right-1/2 translate-x-4 block w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-black"></span>
+        <span className="absolute top-2 right-1/2 translate-x-4 block w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-slate-800"></span>
     )}
   </button>
 );
 
-export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeTab, setActiveTab, onNewPostClick, notificationCount }) => {
+export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeView, setActiveView, onNewPostClick, notificationCount }) => {
   return (
-    <footer className="fixed bottom-0 left-0 right-0 bg-black border-t border-slate-800 shadow-lg z-40">
-      <nav className="max-w-xl mx-auto flex h-16 px-2">
+    <footer className="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 shadow-lg z-40">
+      <nav className="max-w-xl mx-auto flex h-20 items-center justify-around px-2 space-x-1">
         <NavItem
             icon={<HomeIcon />}
-            isActive={activeTab === 'home'}
-            onClick={() => setActiveTab('home')}
+            label="Feed"
+            isActive={activeView === 'feed'}
+            onClick={() => setActiveView('feed')}
         />
         <NavItem
-            icon={<SearchIcon />}
-            isActive={activeTab === 'search'}
-            onClick={() => setActiveTab('search')}
+            icon={<MessageSquareIcon />}
+            label="Connect"
+            isActive={activeView === 'connect'}
+            onClick={() => setActiveView('connect')}
         />
         <button
           onClick={onNewPostClick}
-          className="flex-1 flex justify-center items-center py-2 text-gray-500 hover:text-white"
+          className="flex-1 flex flex-col items-center justify-center h-16 text-gray-400 hover:text-white"
+          aria-label="New Post"
         >
-          <PlusCircleIcon className="h-7 w-7" />
+          <PlusCircleIcon className="h-8 w-8" />
         </button>
         <NavItem
-            icon={<HeartIcon />}
-            isActive={activeTab === 'activity'}
-            onClick={() => setActiveTab('activity')}
+            icon={<BellIcon />}
+            label="Notifications"
+            isActive={activeView === 'notifications'}
+            onClick={() => setActiveView('notifications')}
             hasNotification={notificationCount > 0}
         />
         <NavItem
             icon={<UserIcon />}
-            isActive={activeTab === 'profile'}
-            onClick={() => setActiveTab('profile')}
+            label="Profile"
+            isActive={activeView === 'profile'}
+            onClick={() => setActiveView('profile')}
         />
       </nav>
     </footer>
