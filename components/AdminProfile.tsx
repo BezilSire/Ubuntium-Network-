@@ -38,7 +38,6 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
       }
       await onUpdateUser({ 
         name: formData.name, 
-        email: formData.email, 
         phone: formData.phone,
         id_card_number: formData.id_card_number,
         address: formData.address,

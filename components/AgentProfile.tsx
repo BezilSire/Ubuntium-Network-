@@ -38,7 +38,6 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
       }
       await onUpdateUser({ 
         name: formData.name, 
-        email: formData.email, 
         circle: formData.circle,
         phone: formData.phone,
         id_card_number: formData.id_card_number,

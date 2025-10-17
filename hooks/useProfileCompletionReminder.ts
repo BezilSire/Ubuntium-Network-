@@ -24,8 +24,14 @@ export const useProfileCompletionReminder = (user: User | null) => {
       return;
     }
 
-    // 3. Define what constitutes an incomplete profile.
-    const isProfileIncomplete = !user.bio || !user.phone || !user.address;
+    // 3. Define what constitutes an incomplete profile based on role.
+    let isProfileIncomplete = false;
+    if (user.role === 'agent' || user.role === 'admin') {
+        isProfileIncomplete = !user.phone?.trim() || !user.address?.trim() || !user.bio?.trim() || !user.id_card_number?.trim();
+    } else if (user.role === 'member') {
+        // For members, let's stick to the key fields for the reminder.
+        isProfileIncomplete = !user.phone?.trim() || !user.address?.trim() || !user.bio?.trim();
+    }
 
     // 4. If the profile is incomplete, set a timer to show the reminder.
     if (isProfileIncomplete) {

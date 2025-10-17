@@ -16,7 +16,7 @@ import { AdminProfile } from './AdminProfile';
 import { PostsFeed } from './PostsFeed';
 import { ConnectPage } from './ConnectPage';
 import { DownloadIcon } from './icons/DownloadIcon';
-import { exportToCsv } from '../utils';
+import { exportToCsv, formatTimeAgo } from '../utils';
 import { LayoutDashboardIcon } from './icons/LayoutDashboardIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { InboxIcon } from './icons/InboxIcon';
@@ -399,13 +399,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                          loadErrors['all users'] ? <ErrorDisplay error={loadErrors['all users']} /> :
                          <div className="flow-root">
                             <table className="min-w-full divide-y divide-slate-700">
-                                <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Email</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Current Role</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Change Role To</th></tr></thead>
+                                <thead><tr><th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-300 sm:pl-0">Name</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Email</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Current Role</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Last Seen</th><th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-300">Change Role To</th></tr></thead>
                                 <tbody className="divide-y divide-slate-700">
                                     {(paginatedItems as User[]).map(u => (
                                         <tr key={u.id}>
                                             <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">{u.name}</td>
                                             <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{u.email}</td>
                                             <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400 capitalize">{u.role}</td>
+                                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">
+                                                {u.lastSeen ? formatTimeAgo(u.lastSeen.toDate().toISOString()) : 'N/A'}
+                                            </td>
                                             <td className="whitespace-nowrap px-3 py-4 text-sm">
                                                 <select value={u.role} onChange={(e) => handleRoleChangeRequest(u, e.target.value as User['role'])} className="bg-slate-700 text-white rounded-md p-1 border border-slate-600 focus:ring-green-500 focus:border-green-500">
                                                     <option value="member">Member</option>
