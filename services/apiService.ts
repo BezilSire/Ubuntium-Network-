@@ -336,7 +336,7 @@ export const api = {
       // Create a global activity feed item for the new member
       const activity: Omit<Activity, 'id'> = {
           type: 'NEW_MEMBER',
-          message: `${member.full_name} has joined the commons!`,
+          message: `${member.full_name} from ${member.circle} has joined the commons!`,
           link: member.uid, // Link to their user profile
           causerId: member.uid,
           causerName: member.full_name,
@@ -482,11 +482,28 @@ export const api = {
       };
       const postRef = await addDoc(postsCollection, newPost);
 
-      // Create a global activity item if it's a proposal or opportunity
-      if (type === 'proposal' || type === 'opportunity') {
+      // Create a global activity item for relevant post types
+      let activityType: Activity['type'] | null = null;
+      switch (type) {
+        case 'proposal':
+            activityType = 'NEW_POST_PROPOSAL';
+            break;
+        case 'opportunity':
+            activityType = 'NEW_POST_OPPORTUNITY';
+            break;
+        case 'offer':
+            activityType = 'NEW_POST_OFFER';
+            break;
+        case 'general':
+            activityType = 'NEW_POST_GENERAL';
+            break;
+        // 'distress' posts do not create public activity
+      }
+
+      if (activityType) {
           const activity: Omit<Activity, 'id'> = {
-              type: type === 'proposal' ? 'NEW_POST_PROPOSAL' : 'NEW_POST_OPPORTUNITY',
-              message: `${author.name} created a new ${type}.`,
+              type: activityType,
+              message: `${author.name} created a new ${type} post.`,
               link: postRef.id,
               causerId: author.id,
               causerName: author.name,

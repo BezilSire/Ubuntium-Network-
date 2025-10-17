@@ -24,6 +24,8 @@ const NotificationIcon: React.FC<{ type: NotificationItem['type'] }> = ({ type }
         case 'NEW_MEMBER': return <UsersIcon className={className} />;
         case 'NEW_POST_PROPOSAL': return <LightbulbIcon className={className} />;
         case 'NEW_POST_OPPORTUNITY': return <BriefcaseIcon className={className} />;
+        case 'NEW_POST_OFFER': return <UsersIcon className={className} />;
+        case 'NEW_POST_GENERAL': return <MessageSquareIcon className={className} />;
         default: return <BellIcon className={className} />;
     }
 };
@@ -79,7 +81,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
       <div className="flex justify-between items-center border-b border-slate-700 pb-4 mb-4">
         <h2 className="text-2xl font-semibold text-white flex items-center">
             <BellIcon className="h-6 w-6 mr-3 text-green-400" />
-            Notifications
+            Notifications & Activity
         </h2>
         {notifications.some(n => !n.read) && (
              <button onClick={handleMarkAllRead} className="text-sm text-green-400 hover:text-green-300">
@@ -94,19 +96,27 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
         <ul className="space-y-2">
           {mergedItems.map((item) => {
               const isUnread = item.itemType === 'notification' && !item.read;
+              const isRecentActivity = item.itemType === 'activity' && (Date.now() - item.timestamp.toMillis()) < 24 * 60 * 60 * 1000;
+
               return (
                 <li key={`${item.itemType}-${item.id}`}>
                     <button 
                         onClick={() => handleItemClick(item)}
-                        className={`w-full text-left p-4 rounded-lg flex items-start space-x-4 transition-colors ${isUnread ? 'bg-green-900/40 hover:bg-green-900/60' : 'hover:bg-slate-700/50'}`}
+                        className={`w-full text-left p-4 rounded-lg flex items-start space-x-4 transition-colors relative overflow-hidden ${isUnread ? 'bg-green-900/40 hover:bg-green-900/60' : 'hover:bg-slate-700/50'}`}
                     >
+                        {isRecentActivity && <div className="absolute top-0 left-0 h-full w-1 bg-blue-500" title="Recent Activity"></div>}
                         <div className="flex-shrink-0 mt-1 relative">
                              <NotificationIcon type={item.type} />
                              {isUnread && <span className="absolute -top-1 -right-1 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-slate-800"></span>}
                         </div>
                         <div className="flex-1">
-                            <p className="text-gray-200">{item.message}</p>
-                            <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(item.timestamp.toDate().toISOString())}</p>
+                            <div className="flex justify-between items-center">
+                                <p className="text-gray-200 text-sm">{item.message}</p>
+                                <p className="text-xs text-gray-500 flex-shrink-0 ml-4">{formatTimeAgo(item.timestamp.toDate().toISOString())}</p>
+                            </div>
+                            <p className={`text-xs mt-1 font-semibold ${item.itemType === 'notification' ? 'text-green-400' : 'text-blue-400'}`}>
+                                {item.itemType === 'notification' ? 'Personal Notification' : 'Community Activity'}
+                            </p>
                         </div>
                     </button>
                 </li>

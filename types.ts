@@ -164,7 +164,7 @@ export interface Notification {
 // Global activity feed items
 export interface Activity {
   id: string;
-  type: 'NEW_MEMBER' | 'NEW_POST_PROPOSAL' | 'NEW_POST_OPPORTUNITY';
+  type: 'NEW_MEMBER' | 'NEW_POST_PROPOSAL' | 'NEW_POST_OPPORTUNITY' | 'NEW_POST_GENERAL' | 'NEW_POST_OFFER';
   message: string;
   link: string; // userId or postId
   causerId: string;
