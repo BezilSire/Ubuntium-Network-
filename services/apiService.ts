@@ -208,7 +208,18 @@ export const api = {
 
   // Agent actions
   registerMember: async (agent: Agent, memberData: NewMember): Promise<Member> => {
-    const welcome_message = await generateWelcomeMessage(memberData.full_name, agent.circle);
+    // Default welcome message in case the AI service is unavailable (e.g., offline).
+    let welcome_message = `Welcome to the Ubuntium Global Commons, ${memberData.full_name}! We are thrilled to have you join the ${agent.circle} Circle. I am because we are.`;
+    let needs_welcome_update = false;
+
+    try {
+      // This will fail gracefully if offline, and the default message will be used.
+      welcome_message = await generateWelcomeMessage(memberData.full_name, agent.circle);
+    } catch (error) {
+      console.warn("Could not generate welcome message (likely offline). Using default and flagging for update.", error);
+      needs_welcome_update = true;
+    }
+
     const newMember: Omit<Member, 'id'> = {
       ...memberData,
       agent_id: agent.id,
@@ -217,7 +228,10 @@ export const api = {
       membership_card_id: `UGC-M-${Date.now()}`,
       welcome_message,
       uid: null,
+      ...(needs_welcome_update && { needs_welcome_update: true }) // Conditionally add the flag
     };
+
+    // This operation is automatically queued by Firestore's offline persistence.
     const docRef = await addDoc(membersCollection, newMember);
     return { ...newMember, id: docRef.id };
   },
@@ -368,6 +382,42 @@ export const api = {
           await deleteDoc(postRef);
           await updateDoc(userRef, { last_distress_post_id: null });
       }
+  },
+
+  processPendingWelcomeMessages: async (): Promise<number> => {
+    // Find members that were registered offline and need a welcome message.
+    const q = query(membersCollection, where("needs_welcome_update", "==", true), limit(10)); // Limit to 10 to avoid excessive API calls at once.
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+        return 0;
+    }
+
+    const batch = writeBatch(db);
+    let updateCount = 0;
+
+    for (const memberDoc of snapshot.docs) {
+        const member = { id: memberDoc.id, ...memberDoc.data() } as Member;
+        try {
+            // Try to generate the message now that we're likely online.
+            const welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
+            const memberRef = doc(db, 'members', member.id);
+            batch.update(memberRef, {
+                welcome_message,
+                needs_welcome_update: false
+            });
+            updateCount++;
+        } catch (error) {
+            console.error(`Failed to generate welcome message for synced member ${member.id}. Will retry later.`, error);
+            // We leave the flag as true so it can be retried on the next online sync.
+        }
+    }
+
+    if (updateCount > 0) {
+        await batch.commit();
+    }
+
+    return updateCount;
   },
 
   // Member actions

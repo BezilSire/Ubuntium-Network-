@@ -41,6 +41,7 @@ export interface Member {
   welcome_message: string;
   uid?: string | null; // Firebase Auth UID, linked after account activation
   is_duplicate_email?: boolean;
+  needs_welcome_update?: boolean; // Flag for deferred AI message generation
   // Fields for member profile
   bio?: string;
   profession?: string;
