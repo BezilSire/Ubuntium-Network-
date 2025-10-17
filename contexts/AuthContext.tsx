@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from './ToastContext';
 import { api } from '../services/apiService';
@@ -9,6 +9,7 @@ import { User, Agent, NewPublicMemberData, Member } from '../types';
 // Define the shape of the context value
 interface AuthContextType {
   currentUser: User | null;
+  firebaseUser: FirebaseUser | null;
   isLoadingAuth: boolean;
   isProcessingAuth: boolean;
   login: (credentials: Pick<User, 'email' | 'password'>) => Promise<void>;
@@ -25,12 +26,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Create the Provider component
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isProcessingAuth, setIsProcessingAuth] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
       if (user && !user.isAnonymous) {
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
@@ -42,6 +45,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             addToast('Your account has been suspended.', 'error');
           } else {
             setCurrentUser(userData);
+            api.setupPresence(user.uid);
           }
         } else {
           // A permanent user is authenticated but has no profile document.
@@ -87,15 +91,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [addToast]);
 
   const logout = useCallback(async () => {
+    if (currentUser) {
+        api.goOffline(currentUser.id);
+    }
     await api.logout();
     addToast('You have been logged out.', 'info');
-  }, [addToast]);
+  }, [addToast, currentUser]);
 
   const agentSignup = useCallback(async (credentials: Pick<Agent, 'name' | 'email' | 'password' | 'circle'>) => {
     setIsProcessingAuth(true);
     try {
       await api.signup(credentials.name, credentials.email, credentials.password, credentials.circle);
-      addToast(`Welcome! Your agent account has been created.`, 'success');
+      addToast(`Account created! Please check your email to verify your account.`, 'success');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
       addToast(`Signup failed: ${errorMessage}`, 'error');
@@ -109,7 +116,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsProcessingAuth(true);
     try {
         await api.memberSignup(memberData, password);
-        addToast(`Account created! An admin will review your registration shortly.`, 'success');
+        addToast(`Registration submitted! Please verify your email. An admin will review it shortly.`, 'success');
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         addToast(`Signup failed: ${errorMessage}`, 'error');
@@ -133,7 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!currentUser) return;
     try {
       const freshUser = await api.updateUser(currentUser.id, updatedData);
-      setCurrentUser(freshUser); // Update context state
+      setCurrentUser(prev => prev ? {...prev, ...freshUser} : null); // Update context state
       addToast('Profile updated successfully!', 'success');
     } catch (error) {
       console.error("Failed to update user:", error);
@@ -145,6 +152,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const value = {
     currentUser,
+    firebaseUser,
     isLoadingAuth,
     isProcessingAuth,
     login,

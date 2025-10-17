@@ -11,11 +11,12 @@ import { api } from './services/apiService';
 import { Sidebar } from './components/Sidebar';
 import { BottomNavBar } from './components/BottomNavBar';
 import { useAuth } from './contexts/AuthContext';
+import { VerifyEmailPage } from './components/VerifyEmailPage';
 
 type AgentView = 'dashboard' | 'members' | 'profile';
 
 const App: React.FC = () => {
-  const { currentUser, isLoadingAuth, logout, updateUser } = useAuth();
+  const { currentUser, firebaseUser, isLoadingAuth, logout, updateUser } = useAuth();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const { addToast } = useToast();
 
@@ -67,7 +68,15 @@ const App: React.FC = () => {
             </main>
         );
     }
-    
+
+    if (firebaseUser && !firebaseUser.emailVerified) {
+        return (
+            <main className="p-4 sm:p-6 lg:p-8">
+                <VerifyEmailPage user={currentUser} onLogout={handleLogoutWithReset} />
+            </main>
+        );
+    }
+
     switch (currentUser.role) {
         case 'admin':
             return (

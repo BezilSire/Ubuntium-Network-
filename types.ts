@@ -14,6 +14,8 @@ export interface User {
   credibility_score?: number;
   status?: 'active' | 'pending' | 'suspended' | 'ousted';
   bio?: string;
+  online?: boolean;
+  lastSeen?: Timestamp;
 }
 
 // Agent-specific properties, extending the base User.

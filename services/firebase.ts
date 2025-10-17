@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getDatabase } from 'firebase/database';
 import { firebaseConfig } from './firebaseConfig';
 
 // A robust way to initialize Firebase that prevents re-initialization errors.
@@ -12,6 +13,7 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const rtdb = getDatabase(app);
 
 // Explicitly enable Firestore persistence with multi-tab support to improve stability
 // and prevent crashes related to IndexedDB connection loss, especially when multiple tabs are open.

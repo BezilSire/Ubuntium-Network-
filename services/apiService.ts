@@ -24,9 +24,11 @@ import {
   onSnapshot,
   deleteDoc,
   writeBatch,
-  increment
+  increment,
+  serverTimestamp as firestoreServerTimestamp
 } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
+import { auth, db, rtdb } from './firebase';
 import { 
     User, Agent, Member, NewMember, Broadcast, Post, NewPublicMemberData, MemberUser, 
     Conversation, Message, Report 
@@ -134,7 +136,6 @@ export const api = {
       return sendPasswordResetEmail(auth, email);
   },
 
-  // FIX: Added the missing sendVerificationEmail function
   sendVerificationEmail: async (): Promise<void> => {
     const user = auth.currentUser;
     if (user) {
@@ -165,6 +166,44 @@ export const api = {
   updateMemberProfile: async(memberId: string, updatedData: Partial<Member>): Promise<void> => {
       const memberDocRef = doc(db, 'members', memberId);
       await updateDoc(memberDocRef, updatedData);
+  },
+
+  // Presence
+  setupPresence: (uid: string) => {
+    const userStatusDatabaseRef = ref(rtdb, '/status/' + uid);
+    const userStatusFirestoreRef = doc(db, 'users', uid);
+
+    const isOfflineForRTDB = { online: false, lastSeen: rtdbServerTimestamp() };
+    const isOnlineForRTDB = { online: true, lastSeen: rtdbServerTimestamp() };
+    
+    const isOfflineForFirestore = { online: false, lastSeen: firestoreServerTimestamp() };
+    const isOnlineForFirestore = { online: true, lastSeen: firestoreServerTimestamp() };
+
+    onDisconnect(userStatusDatabaseRef).set(isOfflineForRTDB).then(() => {
+        set(userStatusDatabaseRef, isOnlineForRTDB);
+        updateDoc(userStatusFirestoreRef, isOnlineForFirestore);
+    });
+  },
+
+  goOffline: (uid: string) => {
+    const userStatusDatabaseRef = ref(rtdb, '/status/' + uid);
+    const userStatusFirestoreRef = doc(db, 'users', uid);
+    set(userStatusDatabaseRef, { online: false, lastSeen: rtdbServerTimestamp() });
+    updateDoc(userStatusFirestoreRef, { online: false, lastSeen: firestoreServerTimestamp() });
+  },
+
+  listenForUsersPresence: (uids: string[], callback: (statuses: Record<string, boolean>) => void): (() => void) => {
+    const unsubscribers = uids.map(uid => {
+      const userStatusRef = ref(rtdb, '/status/' + uid);
+      return onValue(userStatusRef, (snapshot) => {
+        const status = snapshot.val();
+        callback({ [uid]: status?.online || false });
+      });
+    });
+
+    return () => {
+      unsubscribers.forEach(unsubscribe => unsubscribe());
+    };
   },
 
   // Agent actions
