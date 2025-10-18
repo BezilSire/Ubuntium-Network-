@@ -25,6 +25,8 @@ export const RepostModal: React.FC<RepostModalProps> = ({ isOpen, onClose, post,
     try {
         await onRepost(post, comment);
     } finally {
+        // The parent component will close the modal on success,
+        // so we only need to reset state on failure.
         setIsSubmitting(false);
     }
   };

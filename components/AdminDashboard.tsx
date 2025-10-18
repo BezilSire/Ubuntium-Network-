@@ -21,7 +21,6 @@ import { LayoutDashboardIcon } from './icons/LayoutDashboardIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { InboxIcon } from './icons/InboxIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
-import { PublicProfile } from './PublicProfile';
 import { BellIcon } from './icons/BellIcon';
 import { NotificationsPage } from './NotificationsPage';
 import { LoaderIcon } from './icons/LoaderIcon';
@@ -47,13 +46,13 @@ interface AdminDashboardProps {
   onSendBroadcast: (message: string) => Promise<void>;
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   unreadCount: number;
+  onViewProfile: (userId: string | null) => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser, unreadCount }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser, unreadCount, onViewProfile }) => {
   const [view, setView] = useState<AdminView>('dashboard');
   const [userView, setUserView] = useState<UserSubView>('agents');
   
-  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -154,7 +153,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     try {
         const newConvo = await api.startChat(user.id, targetUser.id, user.name, targetUser.name);
         setChatTarget(newConvo);
-        setViewingProfileId(null); // Close profile if open
+        onViewProfile(null); // Close profile if open
         setView('connect');
     } catch (error) {
         addToast("Failed to start chat.", "error");
@@ -182,27 +181,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
               // For post likes, navigate to liker's profile. For new member/post, show that user/post.
               // As admins can't easily view a single post, we'll navigate to the user profile for now.
               const targetId = item.itemType === 'notification' ? item.causerId : item.link;
-              setViewingProfileId(targetId);
+              onViewProfile(targetId);
               break;
           default:
               addToast("Navigation for this notification is not available.", "info");
       }
   };
-
-  if (viewingProfileId) {
-    return (
-        <PublicProfile 
-            userId={viewingProfileId} 
-            currentUserId={user.id} 
-            onBack={() => setViewingProfileId(null)} 
-            onStartChat={(targetUserId) => {
-                const targetUser = allUsers.find(u => u.id === targetUserId);
-                if (targetUser) handleStartChat(targetUser);
-            }}
-            onViewProfile={setViewingProfileId}
-        />
-    );
-  }
 
   const enrichedMembers = useMemo(() => {
     const userMap = new Map<string, User>(allUsers.map(u => [u.id, u]));
@@ -443,7 +427,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                                 {(paginatedItems as (Agent & { memberCount: number, commission: number })[]).map(agent => (
                                     <tr key={agent.id}>
                                         <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                            <button onClick={() => setViewingProfileId(agent.id)} className="hover:underline">{agent.name}</button>
+                                            <button onClick={() => onViewProfile(agent.id)} className="hover:underline">{agent.name}</button>
                                         </td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.email}</td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{agent.circle}</td>
@@ -456,7 +440,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                     </div>
                 )}
                 {userView === 'members' && (
-                    <MemberList members={(paginatedItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={setViewingProfileId} onStartChat={(user) => handleStartChat(user)}/>
+                    <MemberList members={(paginatedItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={onViewProfile} onStartChat={(user) => handleStartChat(user)}/>
                 )}
                 {userView === 'roles' && (
                      <div className="flow-root">
@@ -466,7 +450,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                                 {(paginatedItems as User[]).map(u => (
                                     <tr key={u.id}>
                                         <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                            <button onClick={() => setViewingProfileId(u.id)} className="hover:underline">{u.name}</button>
+                                            <button onClick={() => onViewProfile(u.id)} className="hover:underline">{u.name}</button>
                                         </td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400">{u.email}</td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-400 capitalize">{u.role}</td>
@@ -495,11 +479,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         switch (view) {
             case 'dashboard': return renderDashboardView();
             case 'users': return renderUsersView();
-            case 'feed': return <PostsFeed user={user} filter="all" isAdminView onViewProfile={setViewingProfileId} />;
-            case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
-            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={setViewingProfileId} /></div>;
+            case 'feed': return <PostsFeed user={user} filter="all" isAdminView onViewProfile={onViewProfile} />;
+            case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
+            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={onViewProfile} /></div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;
-            case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId} />;
+            case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile} />;
             default: return renderDashboardView();
         }
     };

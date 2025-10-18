@@ -476,7 +476,7 @@ export const api = {
     });
   },
 
-  createPost: async (author: User, content: string, type: Post['type']): Promise<void> => {
+  createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
       const newPost: Omit<Post, 'id'> = {
           authorId: author.id,
           authorName: author.name,
@@ -486,6 +486,7 @@ export const api = {
           upvotes: [],
           replies: [],
           type,
+          repostCount: 0,
       };
       const postRef = await addDoc(postsCollection, newPost);
 
@@ -519,6 +520,39 @@ export const api = {
           };
           await addDoc(activityFeedCollection, activity);
       }
+      return { ...newPost, id: postRef.id };
+  },
+
+  repostPost: async (originalPost: Post, author: User, comment: string): Promise<void> => {
+    const batch = writeBatch(db);
+
+    // 1. Create the new repost
+    const newPost: Omit<Post, 'id'> = {
+        authorId: author.id,
+        authorName: author.name,
+        authorCircle: author.circle || 'Unknown',
+        content: comment,
+        date: new Date().toISOString(),
+        upvotes: [],
+        replies: [],
+        type: 'general', // Reposts are their own type of content
+        repostedFrom: {
+            postId: originalPost.id,
+            authorId: originalPost.authorId,
+            authorName: originalPost.authorName,
+            authorCircle: originalPost.authorCircle,
+            content: originalPost.content,
+            date: originalPost.date,
+        }
+    };
+    const newPostRef = doc(collection(db, 'posts')); // Auto-generate ID
+    batch.set(newPostRef, newPost);
+
+    // 2. Increment repostCount on original post
+    const originalPostRef = doc(db, 'posts', originalPost.id);
+    batch.update(originalPostRef, { repostCount: increment(1) });
+
+    await batch.commit();
   },
 
   createDistressPost: async (content: string): Promise<User> => {
@@ -553,24 +587,22 @@ export const api = {
       return await getUserProfile(currentUser.uid) as User;
   },
 
-  listenForPosts: (filter: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general', callback: (posts: Post[]) => void): () => void => {
+  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
+    let q;
+    // FIX: Removed invalid `if (authorId)` block. `authorId` is not a parameter of this function.
+    // The logic to fetch by author is correctly handled by `listenForPostsByAuthor`.
     if (filter === 'all') {
-        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity', 'distress']), orderBy('date', 'desc'), limit(50));
-        return onSnapshot(q, (snapshot) => {
-            const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-            callback(posts);
-        });
+        q = query(postsCollection, orderBy('date', 'desc'), limit(50));
     } else {
-        // For filtered queries, fetch by date and filter client-side.
-        const q = query(postsCollection, orderBy('date', 'desc'), limit(200)); // Fetch more to find enough of a certain type
-        return onSnapshot(q, (snapshot) => {
-            const posts = snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() } as Post))
-                .filter(post => post.type === filter)
-                .slice(0, 50);
-            callback(posts);
-        });
+        q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
     }
+    
+    return onSnapshot(q, (snapshot) => {
+        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        callback(posts);
+    }, (error) => {
+        console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
+    });
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void): () => void => {

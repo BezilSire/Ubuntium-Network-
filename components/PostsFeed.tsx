@@ -12,11 +12,12 @@ import { ReportPostModal } from './ReportPostModal';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { SirenIcon } from './icons/SirenIcon';
-
+import { RepeatIcon } from './icons/RepeatIcon';
+import { ShareIcon } from './icons/ShareIcon';
+import { RepostModal } from './RepostModal';
 
 interface PostsFeedProps {
   user: User;
-  // FIX: Tie filter type directly to Post['type'] to prevent widening to string.
   filter?: Post['type'] | 'all';
   authorId?: string;
   isAdminView?: boolean;
@@ -31,15 +32,23 @@ export const PostItem: React.FC<{
     onEdit: (post: Post) => void;
     onReport: (post: Post) => void;
     onViewProfile: (userId: string) => void;
+    onRepost: (post: Post) => void;
+    onShare: (post: Post) => void;
     isAdminView?: boolean;
 }> = 
-({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, isAdminView }) => {
+({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, isAdminView }) => {
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
     const isDistressPost = post.type === 'distress';
   
     return (
         <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 ${isDistressPost ? 'border-2 border-red-500/80 motion-safe:animate-pulse' : ''}`}>
+            {post.repostedFrom && (
+                <div className="text-xs text-gray-400 flex items-center space-x-2">
+                    <RepeatIcon className="h-4 w-4" />
+                    <span>Reposted by <button onClick={() => onViewProfile(post.authorId)} className="font-semibold hover:underline">{post.authorName === currentUser.name ? "You" : post.authorName}</button></span>
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-start space-x-3">
                  {isDistressPost ? 
@@ -68,7 +77,7 @@ export const PostItem: React.FC<{
                         </>
                     ) : (
                         <>
-                            {isOwnPost && (
+                            {isOwnPost && !post.repostedFrom && (
                                 <button onClick={() => onEdit(post)} className="hover:text-white" title="Edit post"><PencilIcon className="h-4 w-4" /></button>
                             )}
                             {(isOwnPost || isAdminView) && (
@@ -80,17 +89,44 @@ export const PostItem: React.FC<{
             </div>
 
             {/* Content */}
-            <p className="text-gray-200 whitespace-pre-wrap">{post.content}</p>
+            {post.content && <p className="text-gray-200 whitespace-pre-wrap">{post.content}</p>}
+
+            {/* Reposted Content */}
+            {post.repostedFrom && (
+                <div className="border border-slate-700 rounded-lg p-3 space-y-2 mt-2">
+                    <div className="flex items-center space-x-2">
+                        <UserCircleIcon className="h-8 w-8 text-gray-400" />
+                        <div>
+                            <button onClick={() => onViewProfile(post.repostedFrom.authorId)} className="font-semibold text-white text-sm hover:underline">{post.repostedFrom.authorName}</button>
+                            <p className="text-xs text-gray-500">{post.repostedFrom.authorCircle} &bull; {formatTimeAgo(post.repostedFrom.date)}</p>
+                        </div>
+                    </div>
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap">{post.repostedFrom.content}</p>
+                </div>
+            )}
 
             {/* Footer */}
             <div className="flex justify-between items-center pt-3 border-t border-slate-700">
-                <button 
-                    onClick={() => onUpvote(post.id)} 
-                    className={`flex items-center space-x-2 transition-colors ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                >
-                    <ThumbsUpIcon className={`h-5 w-5 ${hasUpvoted ? 'fill-current' : ''}`} />
-                    <span className="text-sm font-medium">{post.upvotes.length > 0 ? post.upvotes.length : ''}</span>
-                </button>
+                <div className="flex items-center space-x-4">
+                    <button 
+                        onClick={() => onUpvote(post.id)} 
+                        className={`flex items-center space-x-2 transition-colors ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                    >
+                        <ThumbsUpIcon className={`h-5 w-5 ${hasUpvoted ? 'fill-current' : ''}`} />
+                        <span className="text-sm font-medium">{post.upvotes.length > 0 ? post.upvotes.length : ''}</span>
+                    </button>
+                    {!isDistressPost && (
+                        <button onClick={() => onRepost(post)} className="flex items-center space-x-2 text-gray-400 hover:text-green-400">
+                            <RepeatIcon className="h-5 w-5" />
+                            <span className="text-sm font-medium">{post.repostCount && post.repostCount > 0 ? post.repostCount : ''}</span>
+                        </button>
+                    )}
+                     {!isDistressPost && (
+                        <button onClick={() => onShare(post)} className="flex items-center space-x-2 text-gray-400 hover:text-green-400">
+                            <ShareIcon className="h-5 w-5" />
+                        </button>
+                    )}
+                </div>
 
                 {isAdminView && isDistressPost && (
                     <button onClick={() => onViewProfile(post.authorId)} className="text-sm font-semibold text-yellow-400 hover:text-yellow-300">
@@ -116,6 +152,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
   const [postToEdit, setPostToEdit] = useState<Post | null>(null);
   const [postToReport, setPostToReport] = useState<Post | null>(null);
   const [postToDelete, setPostToDelete] = useState<Post | null>(null);
+  const [postToRepost, setPostToRepost] = useState<Post | null>(null);
 
   const { addToast } = useToast();
 
@@ -182,6 +219,46 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
       }
   };
 
+  const handleShare = async (post: Post) => {
+      const postUrl = window.location.href; // Simplified URL
+      const postText = post.repostedFrom ? 
+        `${post.content}\n\nReposting from ${post.repostedFrom.authorName}:\n"${post.repostedFrom.content}"` :
+        post.content;
+      
+      const shareData = {
+          title: `Post by ${post.authorName} on Ubuntium`,
+          text: postText,
+          url: postUrl,
+      };
+
+      if (navigator.share) {
+          try {
+              await navigator.share(shareData);
+          } catch (err) {
+              console.error('Share failed:', err);
+          }
+      } else {
+          // Fallback for desktop browsers
+          try {
+              await navigator.clipboard.writeText(`${postText}\n\nView on Ubuntium: ${postUrl}`);
+              addToast('Post content copied to clipboard!', 'info');
+          } catch (err) {
+              addToast('Could not copy to clipboard.', 'error');
+          }
+      }
+  };
+
+  const handleRepostSubmit = async (originalPost: Post, comment: string) => {
+    try {
+        await api.repostPost(originalPost, user, comment);
+        addToast("Post reposted successfully!", "success");
+        setPostToRepost(null);
+    } catch (error) {
+        addToast("Failed to repost.", "error");
+        console.error(error);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {isLoading ? (
@@ -189,7 +266,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
       ) : posts.length > 0 ? (
         <div className="space-y-4">
           {posts.map(post => (
-            <PostItem key={post.id} post={post} currentUser={user} onUpvote={handleUpvote} onDelete={setPostToDelete} onEdit={setPostToEdit} onReport={setPostToReport} isAdminView={isAdminView} onViewProfile={onViewProfile} />
+            <PostItem key={post.id} post={post} currentUser={user} onUpvote={handleUpvote} onDelete={setPostToDelete} onEdit={setPostToEdit} onReport={setPostToReport} isAdminView={isAdminView} onViewProfile={onViewProfile} onRepost={setPostToRepost} onShare={handleShare} />
           ))}
         </div>
       ) : (
@@ -212,6 +289,16 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
             post={postToReport}
             onReportSubmit={handleReportSubmit}
           />
+      )}
+      
+      {postToRepost && (
+        <RepostModal
+            isOpen={!!postToRepost}
+            onClose={() => setPostToRepost(null)}
+            post={postToRepost}
+            currentUser={user}
+            onRepost={handleRepostSubmit}
+        />
       )}
 
       {postToDelete && (

@@ -39,7 +39,7 @@ const MAX_POST_LENGTH = 500;
 
 export const NewPostModal: React.FC<NewPostModalProps> = ({ isOpen, onClose, user, onPostCreated }) => {
   const [content, setContent] = useState('');
-  const [postType, setPostType] = useState<'general' | 'proposal' | 'offer' | 'opportunity'>('general');
+  const [postType, setPostType] = useState<Post['type']>('general');
   const [isPosting, setIsPosting] = useState(false);
 
   if (!isOpen) {
