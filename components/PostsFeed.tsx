@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Post, User } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Post, User, Activity } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { formatTimeAgo } from '../utils';
@@ -15,6 +15,7 @@ import { SirenIcon } from './icons/SirenIcon';
 import { RepeatIcon } from './icons/RepeatIcon';
 import { ShareIcon } from './icons/ShareIcon';
 import { RepostModal } from './RepostModal';
+import { ActivityItem } from './ActivityItem';
 
 interface PostsFeedProps {
   user: User;
@@ -148,6 +149,7 @@ export const PostItem: React.FC<{
 
 export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [postToEdit, setPostToEdit] = useState<Post | null>(null);
   const [postToReport, setPostToReport] = useState<Post | null>(null);
@@ -158,21 +160,49 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
 
   useEffect(() => {
     setIsLoading(true);
-    let unsubscribe: () => void;
+    let unsubPosts: () => void;
+    let unsubActivities: (() => void) | null = null;
+
     if (authorId) {
-        unsubscribe = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
+        unsubPosts = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
         });
+        setActivities([]);
     } else {
-        unsubscribe = api.listenForPosts(filter, (fetchedPosts) => {
+        unsubPosts = api.listenForPosts(filter, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
         });
+
+        if (filter === 'all') {
+            unsubActivities = api.listenForActivity((fetchedActivities) => {
+                setActivities(fetchedActivities);
+                setIsLoading(false);
+            });
+        } else {
+            setActivities([]);
+        }
     }
 
-    return () => unsubscribe();
+    return () => {
+        unsubPosts();
+        if (unsubActivities) {
+            unsubActivities();
+        }
+    };
   }, [filter, authorId]);
+
+  const feedItems = useMemo(() => {
+    const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
+    const typedActivities = activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() }));
+    
+    const allItems = [...typedPosts, ...typedActivities];
+    
+    allItems.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime());
+
+    return allItems;
+  }, [posts, activities]);
 
 
   const handleUpvote = async (postId: string) => {
@@ -263,11 +293,31 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
     <div className="space-y-4">
       {isLoading ? (
         <p className="text-center text-gray-400 py-12">Loading feed...</p>
-      ) : posts.length > 0 ? (
+      ) : feedItems.length > 0 ? (
         <div className="space-y-4">
-          {posts.map(post => (
-            <PostItem key={post.id} post={post} currentUser={user} onUpvote={handleUpvote} onDelete={setPostToDelete} onEdit={setPostToEdit} onReport={setPostToReport} isAdminView={isAdminView} onViewProfile={onViewProfile} onRepost={setPostToRepost} onShare={handleShare} />
-          ))}
+          {feedItems.map(item =>
+            item.itemType === 'post' ? (
+                <PostItem 
+                    key={`${item.itemType}-${item.id}`} 
+                    post={item} 
+                    currentUser={user} 
+                    onUpvote={handleUpvote} 
+                    onDelete={setPostToDelete} 
+                    onEdit={setPostToEdit} 
+                    onReport={setPostToReport} 
+                    isAdminView={isAdminView} 
+                    onViewProfile={onViewProfile} 
+                    onRepost={setPostToRepost} 
+                    onShare={handleShare} 
+                />
+            ) : (
+                <ActivityItem 
+                    key={`${item.itemType}-${item.id}`} 
+                    activity={item} 
+                    onViewProfile={onViewProfile} 
+                />
+            )
+          )}
         </div>
       ) : (
         <p className="text-center text-gray-500 py-12">{authorId ? "This user hasn't made any posts yet." : "It's quiet in here... be the first to post!"}</p>

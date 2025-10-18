@@ -589,10 +589,11 @@ export const api = {
 
   listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
     let q;
-    // FIX: Removed invalid `if (authorId)` block. `authorId` is not a parameter of this function.
-    // The logic to fetch by author is correctly handled by `listenForPostsByAuthor`.
+    // FIX: The error was caused by type confusion between different apiService files. 
+    // This implementation is the correct and performant one.
+    // Additionally, 'distress' posts are now filtered from the 'all' feed for safety.
     if (filter === 'all') {
-        q = query(postsCollection, orderBy('date', 'desc'), limit(50));
+        q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
     } else {
         q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
     }
@@ -745,8 +746,7 @@ export const api = {
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
     // Admins can contact anyone for 1-on-1 or group chats.
     if (currentUser.role === 'admin') {
-      const q = query(usersCollection, where('status', '==', 'active'));
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(usersCollection);
       return snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as User))
         .filter(user => user.id !== currentUser.id);

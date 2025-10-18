@@ -476,7 +476,7 @@ export const api = {
     });
   },
 
-  createPost: async (author: User, content: string, type: Post['type']): Promise<void> => {
+  createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
       const newPost: Omit<Post, 'id'> = {
           authorId: author.id,
           authorName: author.name,
@@ -486,6 +486,7 @@ export const api = {
           upvotes: [],
           replies: [],
           type,
+          repostCount: 0,
       };
       const postRef = await addDoc(postsCollection, newPost);
 
@@ -519,6 +520,39 @@ export const api = {
           };
           await addDoc(activityFeedCollection, activity);
       }
+      return { ...newPost, id: postRef.id };
+  },
+
+  repostPost: async (originalPost: Post, author: User, comment: string): Promise<void> => {
+    const batch = writeBatch(db);
+
+    // 1. Create the new repost
+    const newPost: Omit<Post, 'id'> = {
+        authorId: author.id,
+        authorName: author.name,
+        authorCircle: author.circle || 'Unknown',
+        content: comment,
+        date: new Date().toISOString(),
+        upvotes: [],
+        replies: [],
+        type: 'general', // Reposts are their own type of content
+        repostedFrom: {
+            postId: originalPost.id,
+            authorId: originalPost.authorId,
+            authorName: originalPost.authorName,
+            authorCircle: originalPost.authorCircle,
+            content: originalPost.content,
+            date: originalPost.date,
+        }
+    };
+    const newPostRef = doc(collection(db, 'posts')); // Auto-generate ID
+    batch.set(newPostRef, newPost);
+
+    // 2. Increment repostCount on original post
+    const originalPostRef = doc(db, 'posts', originalPost.id);
+    batch.update(originalPostRef, { repostCount: increment(1) });
+
+    await batch.commit();
   },
 
   createDistressPost: async (content: string): Promise<User> => {
@@ -553,24 +587,31 @@ export const api = {
       return await getUserProfile(currentUser.uid) as User;
   },
 
-  listenForPosts: (filter: 'all' | 'proposal' | 'distress' | 'offer' | 'opportunity' | 'general', callback: (posts: Post[]) => void): () => void => {
+  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
+    let q;
+    // FIX: The error was caused by type confusion between different apiService files. 
+    // This implementation is the correct and performant one.
+    // Additionally, 'distress' posts are now filtered from the 'all' feed for safety.
     if (filter === 'all') {
-        const q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity', 'distress']), orderBy('date', 'desc'), limit(50));
-        return onSnapshot(q, (snapshot) => {
-            const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-            callback(posts);
-        });
+        q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
     } else {
-        // For filtered queries, fetch by date and filter client-side.
-        const q = query(postsCollection, orderBy('date', 'desc'), limit(200)); // Fetch more to find enough of a certain type
-        return onSnapshot(q, (snapshot) => {
-            const posts = snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() } as Post))
-                .filter(post => post.type === filter)
-                .slice(0, 50);
-            callback(posts);
-        });
+        q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
     }
+    
+    return onSnapshot(q, (snapshot) => {
+        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        callback(posts);
+    }, (error) => {
+        console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
+    });
+  },
+
+  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void): () => void => {
+    const q = query(postsCollection, where("authorId", "==", authorId), orderBy('date', 'desc'), limit(50));
+    return onSnapshot(q, (snapshot) => {
+        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        callback(posts);
+    });
   },
 
   getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
@@ -713,11 +754,11 @@ export const api = {
     
     // Members and Agents
     if (currentUser.role === 'member' || currentUser.role === 'agent') {
-      // For groups, members/agents can only add other active members.
+      // For groups, allow adding any active user (members, agents, admins).
       if (forGroup) {
-        const membersQuery = query(usersCollection, where('role', '==', 'member'), where('status', '==', 'active'));
-        const membersSnap = await getDocs(membersQuery);
-        return membersSnap.docs
+        const q = query(usersCollection, where('status', '==', 'active'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() } as User))
           .filter(user => user.id !== currentUser.id);
       }
@@ -741,17 +782,27 @@ export const api = {
     return [];
   },
   
-  listenForConversations: (userId: string, callback: (convos: Conversation[]) => void): () => void => {
+  listenForConversations: (
+    userId: string, 
+    callback: (convos: Conversation[]) => void,
+    onError: (error: Error) => void
+  ): () => void => {
       const q = query(conversationsCollection, where('members', 'array-contains', userId));
-      return onSnapshot(q, (snapshot) => {
-          const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-          convos.sort((a, b) => {
-              const timeA = a.lastMessageTimestamp?.toDate().getTime() || 0;
-              const timeB = b.lastMessageTimestamp?.toDate().getTime() || 0;
-              return timeB - timeA;
-          });
-          callback(convos);
-      });
+      return onSnapshot(q, 
+        (snapshot) => {
+            const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
+            convos.sort((a, b) => {
+                const timeA = a.lastMessageTimestamp?.toDate().getTime() || 0;
+                const timeB = b.lastMessageTimestamp?.toDate().getTime() || 0;
+                return timeB - timeA;
+            });
+            callback(convos);
+        },
+        (error) => {
+            console.error("Firestore listener error (conversations):", error);
+            onError(error);
+        }
+      );
   },
 
   listenForMessages: (convoId: string, callback: (msgs: Message[]) => void): () => void => {
