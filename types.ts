@@ -111,6 +111,15 @@ export interface Post {
   upvotes: string[]; // Array of user IDs
   replies?: string[]; // Array of post IDs (for future implementation)
   type: 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
+  repostCount?: number;
+  repostedFrom?: {
+    postId: string;
+    authorId: string;
+    authorName: string;
+    authorCircle: string;
+    content: string;
+    date: string;
+  };
 }
 
 // Structure for a chat conversation.

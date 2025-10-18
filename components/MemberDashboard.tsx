@@ -6,7 +6,6 @@ import { MemberProfile } from './MemberProfile';
 import { PostsFeed } from './PostsFeed';
 import { DistressCallDialog } from './DistressCallDialog';
 import { ConnectPage } from './ConnectPage';
-import { PublicProfile } from './PublicProfile';
 import { NotificationsPage } from './NotificationsPage';
 import { MemberBottomNav } from './MemberBottomNav';
 import { NewPostModal } from './NewPostModal';
@@ -18,9 +17,10 @@ interface MemberDashboardProps {
   broadcasts: Broadcast[];
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   unreadCount: number;
+  onViewProfile: (userId: string | null) => void;
 }
 
-export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount }) => {
+export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile }) => {
   const [activeView, setActiveView] = useState<'feed' | 'connect' | 'notifications' | 'profile'>('feed');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
@@ -29,7 +29,6 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const { addToast } = useToast();
   
-  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
@@ -83,7 +82,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         }
         const newConvo = await api.startChat(user.id, targetUserId, user.name, targetUser.name);
         setChatTarget(newConvo);
-        setViewingProfileId(null);
+        onViewProfile(null); // Close profile if open
         setActiveView('connect');
       } catch (error) {
         addToast("Failed to start chat.", "error");
@@ -109,7 +108,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
           case 'NEW_POST_OFFER':
           case 'NEW_POST_GENERAL':
               const profileId = item.itemType === 'notification' ? item.causerId : (item.causerId || item.link);
-              setViewingProfileId(profileId);
+              onViewProfile(profileId);
               break;
           default:
               addToast("Navigation for this item is not available.", "info");
@@ -122,28 +121,16 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
     addToast("Post created successfully!", "success");
   }
 
-  if (viewingProfileId) {
-    return (
-        <PublicProfile 
-            userId={viewingProfileId} 
-            currentUserId={user.id} 
-            onBack={() => setViewingProfileId(null)}
-            onStartChat={handleStartChat}
-            onViewProfile={setViewingProfileId}
-        />
-    );
-  }
-
   const renderContent = () => {
     switch (activeView) {
         case 'feed':
-            return <PostsFeed user={user} filter="all" onViewProfile={setViewingProfileId} />;
+            return <PostsFeed user={user} filter="all" onViewProfile={onViewProfile} />;
         case 'connect':
-            return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={setViewingProfileId} />;
+            return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
         case 'notifications':
-            return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId}/>;
+            return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile}/>;
         case 'profile':
-            return <MemberProfile memberId={user.member_id} currentUserId={user.id} onUpdateUser={onUpdateUser} onViewProfile={setViewingProfileId} />;
+            return <MemberProfile memberId={user.member_id} currentUserId={user.id} onUpdateUser={onUpdateUser} onViewProfile={onViewProfile} />;
         default:
             return null;
     }

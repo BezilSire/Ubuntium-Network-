@@ -14,7 +14,6 @@ import { api } from '../services/apiService';
 import { exportToCsv } from '../utils';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { NotificationsPage } from './NotificationsPage';
-import { PublicProfile } from './PublicProfile';
 
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
@@ -25,6 +24,7 @@ interface AgentDashboardProps {
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   activeView: AgentView;
   setActiveView: (view: AgentView) => void;
+  onViewProfile: (userId: string) => void;
 }
 
 const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; description: string }> = ({ icon, title, value, description }) => (
@@ -40,12 +40,11 @@ const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string |
   </div>
 );
 
-export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts, onUpdateUser, activeView, setActiveView }) => {
+export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts, onUpdateUser, activeView, setActiveView, onViewProfile }) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
-
+  
   // State for member list view
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,7 +101,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
           // For posts, navigate to the post. For members, navigate to their profile.
           // This component doesn't have a post view, so we'll just show profile for now.
           const targetId = item.itemType === 'notification' ? item.causerId : item.link;
-          setViewingProfileId(targetId);
+          onViewProfile(targetId);
       } else {
           addToast('Navigation for this notification is not available in this view.', 'info');
       }
@@ -115,20 +114,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
       .reduce((sum, member) => sum + member.registration_amount * 0.10, 0)
       .toFixed(2);
   }, [members]);
-
-  if (viewingProfileId) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-8">
-        <PublicProfile 
-            userId={viewingProfileId} 
-            currentUserId={user.id} 
-            onBack={() => setViewingProfileId(null)}
-            onStartChat={() => addToast('Direct messaging is not available for agents.', 'info')}
-            onViewProfile={setViewingProfileId}
-        />
-      </div>
-    );
-  }
 
   const renderDashboardView = () => (
     <div className="space-y-8 animate-fade-in">
@@ -233,7 +218,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
                 <p className="text-center py-8 text-gray-400">Loading members...</p>
              ) : paginatedMembers.length > 0 ? (
                  <>
-                    <MemberList members={paginatedMembers} onSelectMember={setSelectedMember} onViewProfile={setViewingProfileId} />
+                    <MemberList members={paginatedMembers} onSelectMember={setSelectedMember} onViewProfile={onViewProfile} />
                     <Pagination
                       currentPage={currentPage}
                       totalPages={totalPages}
@@ -256,7 +241,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
   );
   
   const renderNotificationsView = () => (
-    <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={setViewingProfileId} />
+    <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile} />
   );
 
   const renderActiveView = () => {

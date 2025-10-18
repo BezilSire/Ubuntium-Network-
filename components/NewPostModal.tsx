@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { User, Post } from '../types';
 import { api } from '../services/apiService';
+import { XCircleIcon } from './icons/XCircleIcon';
+import { UserCircleIcon } from './icons/UserCircleIcon';
+import { BriefcaseIcon } from './icons/BriefcaseIcon';
+import { LightbulbIcon } from './icons/LightbulbIcon';
+import { UsersIcon } from './icons/UsersIcon';
+import { MessageSquareIcon } from './icons/MessageSquareIcon';
+
 
 interface NewPostModalProps {
   isOpen: boolean;
@@ -8,6 +15,27 @@ interface NewPostModalProps {
   user: User;
   onPostCreated: () => void;
 }
+
+const PostTypeButton: React.FC<{
+    label: string;
+    icon: React.ReactNode;
+    value: Post['type'];
+    currentValue: Post['type'];
+    onClick: (value: Post['type']) => void;
+}> = ({ label, icon, value, currentValue, onClick }) => (
+    <button
+        onClick={() => onClick(value)}
+        className={`flex-1 flex flex-col items-center justify-center p-3 rounded-lg transition-colors duration-200 space-y-1 text-sm
+            ${currentValue === value ? 'bg-green-600/20 text-green-300' : 'bg-slate-800 hover:bg-slate-700 text-gray-300'}
+        `}
+    >
+        {icon}
+        <span>{label}</span>
+    </button>
+);
+
+
+const MAX_POST_LENGTH = 500;
 
 export const NewPostModal: React.FC<NewPostModalProps> = ({ isOpen, onClose, user, onPostCreated }) => {
   const [content, setContent] = useState('');
@@ -39,47 +67,45 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({ isOpen, onClose, use
         <div className="fixed inset-0 bg-black bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
         <div className="inline-block align-bottom bg-slate-900 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-white text-center mb-4">New Post</h3>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full bg-slate-800 p-3 rounded-md text-white border border-slate-700 focus:ring-green-500 focus:border-green-500 placeholder-gray-500"
-              rows={5}
-              placeholder={`What's on your mind, ${user.name}?`}
-              autoFocus
-            />
-             <div className="flex items-center space-x-4 flex-wrap gap-y-2 mt-4">
-                <label className="flex items-center space-x-2 text-sm text-gray-300">
-                    <input type="radio" name="postType" value="general" checked={postType === 'general'} onChange={() => setPostType('general')} className="text-green-600 bg-slate-900 border-slate-600 focus:ring-green-500"/>
-                    <span>General</span>
-                </label>
-                <label className="flex items-center space-x-2 text-sm text-gray-300">
-                    <input type="radio" name="postType" value="proposal" checked={postType === 'proposal'} onChange={() => setPostType('proposal')} className="text-green-600 bg-slate-900 border-slate-600 focus:ring-green-500"/>
-                    <span>Proposal</span>
-                </label>
-                 <label className="flex items-center space-x-2 text-sm text-gray-300">
-                    <input type="radio" name="postType" value="offer" checked={postType === 'offer'} onChange={() => setPostType('offer')} className="text-green-600 bg-slate-900 border-slate-600 focus:ring-green-500"/>
-                    <span>Offer</span>
-                </label>
-                <label className="flex items-center space-x-2 text-sm text-gray-300">
-                    <input type="radio" name="postType" value="opportunity" checked={postType === 'opportunity'} onChange={() => setPostType('opportunity')} className="text-green-600 bg-slate-900 border-slate-600 focus:ring-green-500"/>
-                    <span>Opportunity</span>
-                </label>
+          <div className="flex items-center justify-between p-4 border-b border-slate-700">
+             <h3 className="text-lg font-bold text-white">Create a Post</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Close">
+                <XCircleIcon className="h-6 w-6"/>
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="flex items-start space-x-3">
+                <UserCircleIcon className="h-10 w-10 text-gray-400 flex-shrink-0" />
+                <div className="w-full">
+                    <textarea
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        className="w-full bg-slate-800 p-2 rounded-md text-white border border-slate-700 focus:ring-green-500 focus:border-green-500 placeholder-gray-500 text-base"
+                        rows={6}
+                        placeholder={`What's on your mind, ${user.name}?`}
+                        maxLength={MAX_POST_LENGTH}
+                        autoFocus
+                    />
+                    <div className="text-right text-xs text-gray-400 mt-1">
+                        {content.length} / {MAX_POST_LENGTH}
+                    </div>
+                </div>
+            </div>
+            
+            <div className="pt-2">
+                <div className="flex items-center justify-around space-x-2">
+                    <PostTypeButton label="General" icon={<MessageSquareIcon className="h-5 w-5"/>} value="general" currentValue={postType} onClick={setPostType} />
+                    <PostTypeButton label="Proposal" icon={<LightbulbIcon className="h-5 w-5"/>} value="proposal" currentValue={postType} onClick={setPostType} />
+                    <PostTypeButton label="Offer" icon={<UsersIcon className="h-5 w-5"/>} value="offer" currentValue={postType} onClick={setPostType} />
+                    <PostTypeButton label="Opportunity" icon={<BriefcaseIcon className="h-5 w-5"/>} value="opportunity" currentValue={postType} onClick={setPostType} />
+                </div>
             </div>
           </div>
-          <div className="bg-slate-900 border-t border-slate-800 px-6 py-3 flex justify-between items-center">
-            <button
-                type="button"
-                className="text-sm text-gray-400 hover:text-white"
-                onClick={onClose}
-              >
-                Cancel
-              </button>
+          <div className="bg-slate-800 px-4 py-3 flex justify-end items-center">
             <button
               type="button"
               disabled={isPosting || !content.trim()}
-              className="inline-flex justify-center rounded-full px-5 py-2 bg-white text-black text-sm font-bold hover:bg-gray-200 disabled:bg-slate-500 disabled:text-slate-800"
+              className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-6 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 disabled:bg-slate-500"
               onClick={handlePost}
             >
               {isPosting ? 'Posting...' : 'Post'}

@@ -16,8 +16,8 @@ import { SirenIcon } from './icons/SirenIcon';
 
 interface PostsFeedProps {
   user: User;
-  // FIX: Explicitly defined the union type for the 'filter' prop to prevent it from being widened to a generic 'string' type.
-  filter?: 'all' | 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
+  // FIX: Tie filter type directly to Post['type'] to prevent widening to string.
+  filter?: Post['type'] | 'all';
   authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;

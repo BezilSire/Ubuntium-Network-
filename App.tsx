@@ -100,6 +100,11 @@ const App: React.FC = () => {
     addToast('Broadcast sent successfully.', 'success');
   };
 
+  const handleViewProfile = (userId: string | null) => {
+    setGlobalViewingProfileId(userId);
+  };
+
+
   if (isLoadingAuth) {
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -116,7 +121,7 @@ const App: React.FC = () => {
         <Header 
           user={currentUser} 
           onLogout={handleLogoutWithReset}
-          onProfileSelect={setGlobalViewingProfileId}
+          onViewProfile={handleViewProfile}
         />
         <main className="p-4 sm:p-6 lg:p-8">
             <PublicProfile 
@@ -128,7 +133,7 @@ const App: React.FC = () => {
                   setGlobalViewingProfileId(null); // Close profile first
                   addToast("Please navigate to the 'Connect' tab to start a chat.", 'info');
                 }}
-                onViewProfile={setGlobalViewingProfileId} // Allows navigating from profile to profile
+                onViewProfile={handleViewProfile} // Allows navigating from profile to profile
             />
         </main>
       </div>
@@ -154,6 +159,7 @@ const App: React.FC = () => {
                         onSendBroadcast={handleSendBroadcast} 
                         onUpdateUser={updateUser}
                         unreadCount={unreadNotificationCount}
+                        onViewProfile={handleViewProfile}
                     />
                 </main>
             );
@@ -165,6 +171,7 @@ const App: React.FC = () => {
                         broadcasts={broadcasts} 
                         onUpdateUser={updateUser}
                         unreadCount={unreadNotificationCount}
+                        onViewProfile={handleViewProfile}
                     />
                 </main>
             );
@@ -189,6 +196,7 @@ const App: React.FC = () => {
                           onUpdateUser={updateUser}
                           activeView={agentView}
                           setActiveView={setAgentView}
+                          onViewProfile={handleViewProfile}
                         />
                     </main>
                     <div className="md:hidden">
@@ -210,7 +218,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 text-gray-200">
       <ToastContainer />
-      <Header user={currentUser} onLogout={handleLogoutWithReset} onProfileSelect={setGlobalViewingProfileId} />
+      <Header user={currentUser} onLogout={handleLogoutWithReset} onViewProfile={handleViewProfile} />
       {renderDashboard()}
       <AppInstallBanner />
     </div>

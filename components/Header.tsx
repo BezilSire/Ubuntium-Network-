@@ -9,7 +9,7 @@ import { GlobalSearch } from './GlobalSearch';
 interface HeaderProps {
   user: User | null;
   onLogout: () => void;
-  onProfileSelect: (userId: string) => void;
+  onViewProfile: (userId: string) => void;
 }
 
 const OfflineIndicator: React.FC = () => (
@@ -19,7 +19,7 @@ const OfflineIndicator: React.FC = () => (
     </div>
 );
 
-export const Header: React.FC<HeaderProps> = ({ user, onLogout, onProfileSelect }) => {
+export const Header: React.FC<HeaderProps> = ({ user, onLogout, onViewProfile }) => {
   const isOnline = useOnlineStatus();
 
   return (
@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onLogout, onProfileSelect 
           
           {user && (
             <div className="flex-1 flex justify-center px-4">
-               <GlobalSearch onProfileSelect={onProfileSelect} currentUser={user} />
+               <GlobalSearch onViewProfile={onViewProfile} currentUser={user} />
             </div>
           )}
 
