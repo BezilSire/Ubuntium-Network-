@@ -11,6 +11,8 @@ import { MemberBottomNav } from './MemberBottomNav';
 import { NewPostModal } from './NewPostModal';
 import { SirenIcon } from './icons/SirenIcon';
 import { PlusCircleIcon } from './icons/PlusCircleIcon';
+import { GlobeIcon } from './icons/GlobeIcon';
+import { UsersIcon } from './icons/UsersIcon';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -22,6 +24,7 @@ interface MemberDashboardProps {
 
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile }) => {
   const [activeView, setActiveView] = useState<'feed' | 'connect' | 'notifications' | 'profile'>('feed');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'following'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
   const [isSubmittingDistress, setIsSubmittingDistress] = useState(false);
@@ -107,6 +110,8 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
           case 'NEW_POST_PROPOSAL':
           case 'NEW_POST_OFFER':
           case 'NEW_POST_GENERAL':
+          case 'POST_COMMENT':
+          case 'NEW_FOLLOWER':
               const profileId = item.itemType === 'notification' ? item.causerId : (item.causerId || item.link);
               onViewProfile(profileId);
               break;
@@ -120,11 +125,38 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
     setActiveView('feed'); // Switch to home feed to see the new post
     addToast("Post created successfully!", "success");
   }
+  
+  const FeedTabs = () => (
+     <div className="mb-4 sticky top-[68px] z-20 bg-slate-900/80 backdrop-blur-sm -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
+        <div className="border-b border-slate-700">
+            <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                 <button
+                    onClick={() => setFeedFilter('all')}
+                    className={`${feedFilter === 'all' ? 'border-green-500 text-green-400' : 'border-transparent text-gray-400 hover:text-gray-200'} group inline-flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                >
+                    <GlobeIcon className="h-5 w-5 mr-2" /> For You
+                </button>
+                 <button
+                    onClick={() => setFeedFilter('following')}
+                    className={`${feedFilter === 'following' ? 'border-green-500 text-green-400' : 'border-transparent text-gray-400 hover:text-gray-200'} group inline-flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                >
+                    <UsersIcon className="h-5 w-5 mr-2" /> Following
+                </button>
+            </nav>
+        </div>
+    </div>
+  );
+
 
   const renderContent = () => {
     switch (activeView) {
         case 'feed':
-            return <PostsFeed user={user} filter="all" onViewProfile={onViewProfile} />;
+            return (
+                <>
+                    <FeedTabs />
+                    <PostsFeed user={user} feedType={feedFilter} onViewProfile={onViewProfile} />
+                </>
+            );
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
         case 'notifications':
@@ -160,11 +192,11 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             </div>
         )}
 
-        <div className="mt-6">
+        <div className="mt-0">
             {renderContent()}
         </div>
 
-        {user.status === 'active' && (
+        {user.status === 'active' && activeView === 'feed' && (
             <div className="fixed bottom-24 right-4 sm:right-6 lg:right-8 z-20 flex flex-col items-center space-y-3">
                 <button
                     onClick={() => setIsDistressDialogOpen(true)}

@@ -1,3 +1,5 @@
+
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -31,7 +33,7 @@ import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp
 import { auth, db, rtdb } from './firebase';
 import { 
     User, Agent, Member, NewMember, Broadcast, Post, NewPublicMemberData, MemberUser, 
-    Conversation, Message, Report, Notification, Activity
+    Conversation, Message, Report, Notification, Activity, Comment, UserReport
 } from '../types';
 import { generateAgentCode } from '../utils';
 import { generateWelcomeMessage } from './geminiService';
@@ -43,6 +45,7 @@ const broadcastsCollection = collection(db, 'broadcasts');
 const postsCollection = collection(db, 'posts');
 const conversationsCollection = collection(db, 'conversations');
 const reportsCollection = collection(db, 'reports');
+const userReportsCollection = collection(db, 'user_reports');
 const notificationsCollection = collection(db, 'notifications');
 const activityFeedCollection = collection(db, 'activity_feed');
 
@@ -165,11 +168,10 @@ export const api = {
       return { id: doc.id, ...doc.data() } as Member;
   },
 
-  updateUser: async (uid: string, updatedData: Partial<User>): Promise<User> => {
+  updateUser: async (uid: string, updatedData: Partial<User>): Promise<void> => {
       const userDocRef = doc(db, 'users', uid);
+      // We don't return here because the onSnapshot listener in AuthContext will handle the update.
       await updateDoc(userDocRef, updatedData);
-      const updatedDoc = await getDoc(userDocRef);
-      return { id: updatedDoc.id, ...updatedDoc.data() } as User;
   },
 
   updateMemberProfile: async(memberId: string, updatedData: Partial<Member>): Promise<void> => {
@@ -488,6 +490,7 @@ export const api = {
           replies: [],
           type,
           repostCount: 0,
+          commentCount: 0,
       };
       const postRef = await addDoc(postsCollection, newPost);
 
@@ -537,6 +540,7 @@ export const api = {
         upvotes: [],
         replies: [],
         type: 'general', // Reposts are their own type of content
+        commentCount: 0,
         repostedFrom: {
             postId: originalPost.id,
             authorId: originalPost.authorId,
@@ -577,6 +581,8 @@ export const api = {
           upvotes: [],
           replies: [],
           type: 'distress',
+          commentCount: 0,
+          repostCount: 0
       };
       const postRef = await addDoc(postsCollection, newPost);
 
@@ -679,6 +685,137 @@ export const api = {
   updatePost: async (postId: string, content: string): Promise<void> => {
       const postRef = doc(db, 'posts', postId);
       await updateDoc(postRef, { content });
+  },
+
+  // Comments
+  listenForComments: (postId: string, callback: (comments: Comment[]) => void): () => void => {
+    const commentsRef = collection(db, 'posts', postId, 'comments');
+    const q = query(commentsRef, orderBy('timestamp', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+        const comments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment));
+        callback(comments);
+    });
+  },
+
+  addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
+    const postRef = doc(db, 'posts', postId);
+    const commentsRef = collection(postRef, 'comments');
+    const timestamp = Timestamp.now();
+    
+    await addDoc(commentsRef, { ...commentData, timestamp });
+    await updateDoc(postRef, { commentCount: increment(1) });
+    
+    const postDoc = await getDoc(postRef);
+    if (postDoc.exists()) {
+        const post = postDoc.data() as Post;
+        if (post.authorId !== commentData.authorId) {
+            const commentSnippet = commentData.content.length > 50 ? `${commentData.content.substring(0, 47)}...` : commentData.content;
+            const notification: Omit<Notification, 'id'> = {
+                userId: post.authorId,
+                type: 'POST_COMMENT',
+                message: `${commentData.authorName} commented on your post: "${commentSnippet}"`,
+                link: postId,
+                causerId: commentData.authorId,
+                causerName: commentData.authorName,
+                timestamp,
+                read: false,
+            };
+            await addDoc(notificationsCollection, notification);
+        }
+    }
+  },
+
+  deleteComment: async (postId: string, commentId: string): Promise<void> => {
+      const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+      await deleteDoc(commentRef);
+      const postRef = doc(db, 'posts', postId);
+      await updateDoc(postRef, { commentCount: increment(-1) });
+  },
+
+  upvoteComment: async (postId: string, commentId: string, userId: string): Promise<void> => {
+      const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+      const commentDoc = await getDoc(commentRef);
+      if (commentDoc.exists()) {
+          const comment = commentDoc.data() as Comment;
+          if (comment.upvotes.includes(userId)) {
+              await updateDoc(commentRef, { upvotes: arrayRemove(userId) });
+          } else {
+              await updateDoc(commentRef, { upvotes: arrayUnion(userId) });
+          }
+      }
+  },
+  
+  // Following / Feed
+  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void): () => void => {
+    if (followingIds.length === 0) {
+        callback([]);
+        return () => {}; // No-op unsubscribe
+    }
+
+    // Firestore 'in' query supports up to 30 values. We'll take the first 30 for simplicity.
+    const queryIds = followingIds.slice(0, 30);
+    
+    const q = query(postsCollection, where('authorId', 'in', queryIds), orderBy('date', 'desc'), limit(50));
+    
+    return onSnapshot(q, (snapshot) => {
+        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        callback(posts);
+    }, (error) => {
+        console.error(`Firestore listener error for following posts:`, error);
+    });
+  },
+
+  followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
+
+    const currentUserRef = doc(db, 'users', currentUserId);
+    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
+
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
+
+    await batch.commit();
+    
+    const currentUserProfile = await getUserProfile(currentUserId);
+    if (currentUserProfile) {
+        const notification: Omit<Notification, 'id'> = {
+            userId: targetUserId,
+            type: 'NEW_FOLLOWER',
+            message: `${currentUserProfile.name} started following you.`,
+            link: currentUserId,
+            causerId: currentUserId,
+            causerName: currentUserProfile.name,
+            timestamp: Timestamp.now(),
+            read: false,
+        };
+        await addDoc(notificationsCollection, notification);
+    }
+  },
+
+  unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
+
+    const currentUserRef = doc(db, 'users', currentUserId);
+    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
+
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(targetUserRef, { followers: arrayRemove(targetUserId) });
+
+    await batch.commit();
+  },
+
+  reportUser: async (reporter: User, reportedUser: User, reason: string, details: string): Promise<void> => {
+    const newReport: Omit<UserReport, 'id'> = {
+        reporterId: reporter.id,
+        reporterName: reporter.name,
+        reportedUserId: reportedUser.id,
+        reportedUserName: reportedUser.name,
+        reason,
+        details,
+        date: new Date().toISOString(),
+        status: 'new',
+    };
+    await addDoc(userReportsCollection, newReport);
   },
 
   // Reporting

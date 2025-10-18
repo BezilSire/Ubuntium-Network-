@@ -1,5 +1,7 @@
+
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { Post, User, Activity } from '../types';
+import { Post, User, Activity, Comment } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { formatTimeAgo } from '../utils';
@@ -19,14 +21,121 @@ import { ActivityItem } from './ActivityItem';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { UsersIcon } from './icons/UsersIcon';
+import { MessageCircleIcon } from './icons/MessageCircleIcon';
+import { SendIcon } from './icons/SendIcon';
+import { Timestamp } from 'firebase/firestore';
 
-interface PostsFeedProps {
-  user: User;
-  filter?: Post['type'] | 'all';
-  authorId?: string;
-  isAdminView?: boolean;
-  onViewProfile: (userId: string) => void;
-}
+// --- Comment Section Components ---
+
+const CommentItem: React.FC<{
+    comment: Comment;
+    postId: string;
+    currentUser: User;
+    onDelete: (postId: string, commentId: string) => void;
+    onUpvote: (postId: string, commentId: string) => void;
+    onViewProfile: (userId: string) => void;
+}> = ({ comment, postId, currentUser, onDelete, onUpvote, onViewProfile }) => {
+    const isOwnComment = currentUser.id === comment.authorId;
+    const hasUpvoted = comment.upvotes.includes(currentUser.id);
+
+    return (
+        <div className="flex items-start space-x-3 py-3">
+            <button onClick={() => onViewProfile(comment.authorId)}>
+                <UserCircleIcon className="h-8 w-8 text-gray-400"/>
+            </button>
+            <div className="flex-1">
+                <div className="bg-slate-700/50 rounded-lg px-3 py-2">
+                    <div className="flex items-center justify-between">
+                         <button onClick={() => onViewProfile(comment.authorId)} className="font-semibold text-sm text-white hover:underline">{comment.authorName}</button>
+                        <p className="text-xs text-gray-500">{formatTimeAgo(comment.timestamp.toDate().toISOString())}</p>
+                    </div>
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{comment.content}</p>
+                </div>
+                <div className="flex items-center space-x-3 mt-1 pl-2">
+                    <button onClick={() => onUpvote(postId, comment.id)} className={`flex items-center space-x-1 text-xs ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}>
+                        <ThumbsUpIcon className="h-3 w-3" />
+                        <span>{comment.upvotes.length > 0 ? comment.upvotes.length : 'Like'}</span>
+                    </button>
+                    {isOwnComment && (
+                         <button onClick={() => onDelete(postId, comment.id)} className="text-xs text-gray-400 hover:text-red-400">Delete</button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+const CommentSection: React.FC<{
+    postId: string;
+    currentUser: User;
+    onViewProfile: (userId: string) => void;
+}> = ({ postId, currentUser, onViewProfile }) => {
+    const [comments, setComments] = useState<Comment[]>([]);
+    const [newComment, setNewComment] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const unsubscribe = api.listenForComments(postId, setComments);
+        return () => unsubscribe();
+    }, [postId]);
+
+    const handleCommentSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newComment.trim()) return;
+        setIsSubmitting(true);
+        const commentData: Omit<Comment, 'id' | 'timestamp'> = {
+            postId,
+            authorId: currentUser.id,
+            authorName: currentUser.name,
+            content: newComment,
+            upvotes: [],
+        };
+        try {
+            await api.addComment(postId, commentData);
+            setNewComment('');
+        } catch (error) {
+            console.error("Failed to post comment:", error);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    const handleDeleteComment = async (postId: string, commentId: string) => {
+        if(window.confirm("Are you sure you want to delete this comment?")) {
+            await api.deleteComment(postId, commentId);
+        }
+    };
+    
+    const handleUpvoteComment = async (postId: string, commentId: string) => {
+        await api.upvoteComment(postId, commentId, currentUser.id);
+    };
+
+    return (
+        <div className="pt-2">
+            <div className="border-t border-slate-700/50 mt-2 pt-2">
+                {comments.map(comment => (
+                    <CommentItem key={comment.id} comment={comment} postId={postId} currentUser={currentUser} onDelete={handleDeleteComment} onUpvote={handleUpvoteComment} onViewProfile={onViewProfile} />
+                ))}
+            </div>
+            <form onSubmit={handleCommentSubmit} className="flex items-center space-x-2 pt-2">
+                <UserCircleIcon className="h-8 w-8 text-gray-400"/>
+                <input 
+                    type="text"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Write a comment..."
+                    className="flex-1 bg-slate-700 rounded-full py-2 px-4 text-white border border-slate-600 focus:outline-none focus:ring-1 focus:ring-green-500 text-sm"
+                />
+                <button type="submit" disabled={isSubmitting || !newComment.trim()} className="p-2 rounded-full text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-600">
+                    <SendIcon className="h-5 w-5"/>
+                </button>
+            </form>
+        </div>
+    );
+};
+
+// --- Post Item Component ---
 
 export const PostItem: React.FC<{ 
     post: Post; 
@@ -44,6 +153,7 @@ export const PostItem: React.FC<{
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
     const isDistressPost = post.type === 'distress';
+    const [showComments, setShowComments] = useState(false);
   
     const typeStyles: Record<string, { icon: React.ReactNode; borderColor: string; title: string }> = {
         proposal: {
@@ -96,7 +206,7 @@ export const PostItem: React.FC<{
                  {isDistressPost ? 
                     <SirenIcon className="h-10 w-10 text-red-500 flex-shrink-0" />
                     :
-                    <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0">
+                    <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0" aria-label={`View ${post.authorName}'s profile`}>
                        <UserCircleIcon className="h-10 w-10 text-gray-400" />
                     </button>
                  }
@@ -105,6 +215,7 @@ export const PostItem: React.FC<{
                         onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
                         className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
                         disabled={isDistressPost}
+                        aria-label={`View ${post.authorName}'s profile`}
                     >
                         {post.authorName}
                     </button>
@@ -157,6 +268,13 @@ export const PostItem: React.FC<{
                         <ThumbsUpIcon className={`h-5 w-5 ${hasUpvoted ? 'fill-current' : ''}`} />
                         <span className="text-sm font-medium">{post.upvotes.length > 0 ? post.upvotes.length : ''}</span>
                     </button>
+                     <button 
+                        onClick={() => setShowComments(prev => !prev)} 
+                        className="flex items-center space-x-2 text-gray-400 hover:text-green-400"
+                    >
+                        <MessageCircleIcon className="h-5 w-5" />
+                        <span className="text-sm font-medium">{post.commentCount && post.commentCount > 0 ? post.commentCount : ''}</span>
+                    </button>
                     {!isDistressPost && (
                         <button onClick={() => onRepost(post)} className="flex items-center space-x-2 text-gray-400 hover:text-green-400">
                             <RepeatIcon className="h-5 w-5" />
@@ -183,12 +301,22 @@ export const PostItem: React.FC<{
                     </button>
                 )}
             </div>
+            {showComments && <CommentSection postId={post.id} currentUser={currentUser} onViewProfile={onViewProfile} />}
         </div>
     );
 };
 
+// --- Main Feed Component ---
 
-export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', authorId, isAdminView = false, onViewProfile }) => {
+interface PostsFeedProps {
+  user: User;
+  feedType?: 'all' | 'following';
+  authorId?: string;
+  isAdminView?: boolean;
+  onViewProfile: (userId: string) => void;
+}
+
+export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -203,6 +331,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
     setIsLoading(true);
     let unsubPosts: () => void;
     let unsubActivities: (() => void) | null = null;
+    
+    const followingList = user.following || [];
 
     if (authorId) {
         unsubPosts = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
@@ -210,21 +340,23 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
             setIsLoading(false);
         });
         setActivities([]);
-    } else {
-        // FIX: Explicitly cast 'filter' to its defined union type. This resolves a TypeScript error likely caused by a project configuration issue where 'filter' is incorrectly inferred as a generic 'string'.
-        unsubPosts = api.listenForPosts(filter as Post['type'] | 'all', (fetchedPosts) => {
+    } else if (feedType === 'following') {
+        unsubPosts = api.listenForFollowingPosts(followingList, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
         });
+        setActivities([]);
+    }
+    else {
+        unsubPosts = api.listenForPosts('all', (fetchedPosts) => {
+            setPosts(fetchedPosts);
+            // Don't set loading to false here, wait for activities too
+        });
 
-        if (filter === 'all') {
-            unsubActivities = api.listenForActivity((fetchedActivities) => {
-                setActivities(fetchedActivities);
-                setIsLoading(false);
-            });
-        } else {
-            setActivities([]);
-        }
+        unsubActivities = api.listenForActivity((fetchedActivities) => {
+            setActivities(fetchedActivities);
+            setIsLoading(false);
+        });
     }
 
     return () => {
@@ -233,9 +365,14 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
             unsubActivities();
         }
     };
-  }, [filter, authorId]);
+  }, [feedType, authorId, user.following]);
 
   const feedItems = useMemo(() => {
+    // Don't merge activities with 'following' or author-specific feeds
+    if (feedType === 'following' || authorId) {
+        return posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
+    }
+
     const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
     const typedActivities = activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() }));
     
@@ -244,7 +381,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
     allItems.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime());
 
     return allItems;
-  }, [posts, activities]);
+  }, [posts, activities, feedType, authorId]);
 
 
   const handleUpvote = async (postId: string) => {
@@ -362,7 +499,11 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
           )}
         </div>
       ) : (
-        <p className="text-center text-gray-500 py-12">{authorId ? "This user hasn't made any posts yet." : "It's quiet in here... be the first to post!"}</p>
+        <div className="text-center text-gray-500 py-12 bg-slate-800 rounded-lg">
+            {authorId ? "This user hasn't made any posts yet." : 
+             feedType === 'following' ? "Your 'Following' feed is empty. Follow some members to see their posts here." :
+             "It's quiet in here... be the first to post!"}
+        </div>
       )}
 
       {postToEdit && (

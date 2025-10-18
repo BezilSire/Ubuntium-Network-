@@ -15,11 +15,12 @@ import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 import { PublicProfile } from './components/PublicProfile';
+import { CompleteProfilePage } from './components/CompleteProfilePage';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
 const App: React.FC = () => {
-  const { currentUser, isLoadingAuth, logout, updateUser } = useAuth();
+  const { currentUser, isLoadingAuth, logout, updateUser, firebaseUser } = useAuth();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const { addToast } = useToast();
   const isOnline = useOnlineStatus();
@@ -113,7 +114,23 @@ const App: React.FC = () => {
     );
   }
   
-  // If a profile is being viewed globally (e.g., from search), render it as an overlay.
+  const renderFullScreenPage = (content: React.ReactNode) => (
+    <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
+      <ToastContainer />
+      <Header user={currentUser} onLogout={handleLogoutWithReset} onViewProfile={handleViewProfile} />
+      <main className="p-4 sm:p-6 lg:p-8">
+          {content}
+      </main>
+    </div>
+  );
+
+  // Step 1: Check for mandatory profile completion
+  if (currentUser && !currentUser.isProfileComplete) {
+    return renderFullScreenPage(<CompleteProfilePage user={currentUser} onProfileComplete={async (data) => { await updateUser({ ...data, isCompletingProfile: true }) }} />);
+  }
+
+
+  // Step 2: If a profile is being viewed globally, render it.
   if (globalViewingProfileId && currentUser) {
     return (
       <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
@@ -128,10 +145,19 @@ const App: React.FC = () => {
                 userId={globalViewingProfileId}
                 currentUser={currentUser}
                 onBack={() => setGlobalViewingProfileId(null)}
-                onStartChat={() => {
-                  // This is a complex navigation action. For now, guide the user.
-                  setGlobalViewingProfileId(null); // Close profile first
-                  addToast("Please navigate to the 'Connect' tab to start a chat.", 'info');
+                onStartChat={async (targetUserId: string) => {
+                  try {
+                    const targetUser = await api.getUserProfile(targetUserId);
+                    if (!targetUser) {
+                      addToast("User not found.", "error");
+                      return;
+                    }
+                    await api.startChat(currentUser.id, targetUserId, currentUser.name, targetUser.name);
+                    setGlobalViewingProfileId(null);
+                    addToast("Please navigate to the 'Connect' tab to see your new chat.", 'info');
+                  } catch (e) {
+                    addToast("Could not start chat.", "error");
+                  }
                 }}
                 onViewProfile={handleViewProfile} // Allows navigating from profile to profile
             />

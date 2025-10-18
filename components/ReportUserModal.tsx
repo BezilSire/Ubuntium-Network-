@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { MemberUser } from '../types';
+import { User } from '../types';
 import { XCircleIcon } from './icons/XCircleIcon';
 
 interface ReportUserModalProps {
   isOpen: boolean;
   onClose: () => void;
-  reportedUser: MemberUser;
+  reportedUser: User;
   onReportSubmit: (reason: string, details: string) => Promise<void>;
 }
 
@@ -41,14 +41,18 @@ export const ReportUserModal: React.FC<ReportUserModalProps> = ({ isOpen, onClos
                         <option value="">Select a reason...</option>
                         <option value="spam">Spam or unwanted messages</option>
                         <option value="harassment">Harassment or hate speech</option>
+                        <option value="impersonation">Impersonation</option>
                         <option value="scam">Scam or fraud</option>
-                        <option value="inappropriate">Inappropriate content</option>
+                        <option value="inappropriate_profile">Inappropriate profile information</option>
                         <option value="other">Other</option>
                     </select>
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-300">Additional details (optional)</label>
                     <textarea value={details} onChange={e => setDetails(e.target.value)} rows={4} className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white" />
+                </div>
+                 <div className="text-xs text-gray-400 p-2 bg-slate-700/50 rounded-md">
+                  <p>Falsely reporting users may negatively impact your credibility score.</p>
                 </div>
             </div>
           </div>

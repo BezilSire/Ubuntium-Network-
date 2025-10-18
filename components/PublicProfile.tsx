@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Member, Post } from '../types';
+import { User, Member, Post, MemberUser } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
@@ -8,6 +8,11 @@ import { PostItem } from './PostsFeed'; // Re-using PostItem from PostsFeed
 import { IdCardIcon } from './icons/IdCardIcon';
 import { InfoIcon } from './icons/InfoIcon';
 import { MemberCard } from './MemberCard';
+import { UserPlusIcon } from './icons/UserPlusIcon';
+import { UserCheckIcon } from './icons/UserCheckIcon';
+import { FlagIcon } from './icons/FlagIcon';
+import { MoreVerticalIcon } from './icons/MoreVerticalIcon';
+import { ReportUserModal } from './ReportUserModal';
 
 
 interface PublicProfileProps {
@@ -37,7 +42,15 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const [posts, setPosts] = useState<Post[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showCard, setShowCard] = useState(false);
+    const [isFollowing, setIsFollowing] = useState(false);
+    const [isProcessingFollow, setIsProcessingFollow] = useState(false);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
     const { addToast } = useToast();
+
+    useEffect(() => {
+        setIsFollowing(currentUser.following?.includes(userId) ?? false);
+    }, [currentUser, userId]);
 
     useEffect(() => {
         const fetchProfileData = async () => {
@@ -87,7 +100,36 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
         }
     };
     
-    // Deleting/editing posts from a public profile view is complex, so we'll disable it for now.
+    const handleFollowToggle = async () => {
+        if (!user) return;
+        setIsProcessingFollow(true);
+        try {
+            if (isFollowing) {
+                await api.unfollowUser(currentUser.id, user.id);
+                addToast(`Unfollowed ${user.name}`, 'info');
+            } else {
+                await api.followUser(currentUser.id, user.id);
+                addToast(`You are now following ${user.name}`, 'success');
+            }
+            // Local state updates for immediate feedback, context will catch up.
+            setIsFollowing(!isFollowing); 
+        } catch (error) {
+            addToast('Action failed. Please try again.', 'error');
+        } finally {
+            setIsProcessingFollow(false);
+        }
+    };
+
+    const handleReportSubmit = async (reason: string, details: string) => {
+        if (!user) return;
+        try {
+            await api.reportUser(currentUser, user, reason, details);
+            addToast("Report submitted successfully. An admin will review it.", "success");
+        } catch (error) {
+            addToast("Failed to submit report.", "error");
+        }
+    };
+
     const handlePlaceholder = () => {
         addToast("This action can only be performed from your own feed.", "info");
     };
@@ -115,6 +157,14 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
 
     return (
         <div className="animate-fade-in">
+             {isReportModalOpen && user && (
+                <ReportUserModal
+                    isOpen={isReportModalOpen}
+                    onClose={() => setIsReportModalOpen(false)}
+                    reportedUser={user}
+                    onReportSubmit={handleReportSubmit}
+                />
+            )}
             <button onClick={onBack} className="inline-flex items-center mb-6 text-sm font-medium text-green-400 hover:text-green-300">
                 <ArrowLeftIcon className="h-4 w-4 mr-2" />
                 Back
@@ -137,15 +187,29 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                         </div>
                         <p className="text-lg text-green-400">{memberDetails?.profession || <span className="capitalize">{user.role}</span>}</p>
                         <p className="text-sm text-gray-400">{user.circle}</p>
+                        <div className="flex items-center space-x-4 mt-2 text-sm text-gray-300">
+                            <span><strong className="text-white">{user.followers?.length ?? 0}</strong> Followers</span>
+                            <span><strong className="text-white">{user.following?.length ?? 0}</strong> Following</span>
+                        </div>
                     </div>
-                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-start">
                         {!isOwnProfile && (
                              <button 
                                 onClick={() => onStartChat(user.id)}
-                                className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 w-full sm:w-auto"
+                                className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-slate-700 text-white text-sm font-semibold rounded-md hover:bg-slate-600 w-full sm:w-auto"
                             >
                                 <MessageSquareIcon className="h-4 w-4" />
-                                <span>Send Message</span>
+                                <span>Message</span>
+                            </button>
+                        )}
+                        {!isOwnProfile && (
+                            <button 
+                                onClick={handleFollowToggle}
+                                disabled={isProcessingFollow}
+                                className={`inline-flex items-center justify-center space-x-2 px-4 py-2 text-sm font-semibold rounded-md w-full sm:w-auto transition-colors ${isFollowing ? 'bg-green-800 text-green-300 hover:bg-green-900' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                            >
+                                {isFollowing ? <UserCheckIcon className="h-4 w-4"/> : <UserPlusIcon className="h-4 w-4" />}
+                                <span>{isFollowing ? 'Following' : 'Follow'}</span>
                             </button>
                         )}
                         {user.role === 'member' && memberDetails && (
@@ -157,6 +221,24 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                                 <span>{showCard ? 'View Profile' : 'View Card'}</span>
                             </button>
                         )}
+                         {!isOwnProfile && (
+                            <div className="relative">
+                                <button onClick={() => setIsMenuOpen(prev => !prev)} className="p-2 bg-slate-700 text-white rounded-md hover:bg-slate-600">
+                                    <MoreVerticalIcon className="h-5 w-5"/>
+                                </button>
+                                {isMenuOpen && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-md shadow-lg z-20">
+                                        <button 
+                                            onClick={() => {setIsReportModalOpen(true); setIsMenuOpen(false);}}
+                                            className="w-full text-left flex items-center space-x-3 px-4 py-2 text-sm text-red-400 hover:bg-slate-800"
+                                        >
+                                            <FlagIcon className="h-4 w-4"/>
+                                            <span>Report User</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                         )}
                     </div>
                 </div>
                 

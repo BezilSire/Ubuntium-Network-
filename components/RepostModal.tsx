@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Post, User } from '../types';
 import { XCircleIcon } from './icons/XCircleIcon';

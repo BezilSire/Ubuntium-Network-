@@ -16,6 +16,9 @@ export interface User {
   bio?: string;
   online?: boolean;
   lastSeen?: Timestamp;
+  isProfileComplete?: boolean;
+  following?: string[]; // Array of user IDs they are following
+  followers?: string[]; // Array of user IDs following them
 }
 
 // Agent-specific properties, extending the base User.
@@ -66,6 +69,7 @@ export interface MemberUser extends User {
     last_distress_post_id?: string | null;
     status: 'active' | 'pending' | 'suspended' | 'ousted';
     credibility_score: number;
+    isProfileComplete?: boolean;
 }
 
 // Simplified Admin type, extending User.
@@ -120,6 +124,7 @@ export interface Post {
     content: string;
     date: string;
   };
+  commentCount?: number;
 }
 
 // Structure for a chat conversation.
@@ -158,13 +163,38 @@ export interface Report {
   status: 'new' | 'resolved';
 }
 
+// Structure for a user report.
+export interface UserReport {
+  id: string;
+  reporterId: string;
+  reporterName: string;
+  reportedUserId: string;
+  reportedUserName: string;
+  reason: string;
+  details: string;
+  date: string; // ISO
+  status: 'new' | 'resolved';
+}
+
+// Structure for a comment on a post.
+export interface Comment {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  timestamp: Timestamp; // Firestore Timestamp
+  upvotes: string[]; // Array of user IDs
+}
+
+
 // Personal, user-specific notifications
 export interface Notification {
   id: string;
   userId: string; // Recipient
-  type: 'NEW_MESSAGE' | 'POST_LIKE' | 'NEW_CHAT';
+  type: 'NEW_MESSAGE' | 'POST_LIKE' | 'NEW_CHAT' | 'NEW_FOLLOWER' | 'POST_COMMENT';
   message: string;
-  link: string; // convoId or postId
+  link: string; // convoId or postId or userId
   causerId: string;
   causerName: string;
   timestamp: Timestamp;
