@@ -5,10 +5,14 @@ import { useToast } from '../contexts/ToastContext';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { PostItem } from './PostsFeed'; // Re-using PostItem from PostsFeed
+import { IdCardIcon } from './icons/IdCardIcon';
+import { InfoIcon } from './icons/InfoIcon';
+import { MemberCard } from './MemberCard';
+
 
 interface PublicProfileProps {
   userId: string;
-  currentUserId: string;
+  currentUser: User;
   onBack: () => void;
   onStartChat: (targetUserId: string) => void;
   onViewProfile: (userId: string) => void; // For viewing profiles from posts
@@ -27,16 +31,18 @@ const Pill: React.FC<{text: string}> = ({ text }) => (
     </span>
 );
 
-export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUserId, onBack, onStartChat, onViewProfile }) => {
+export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUser, onBack, onStartChat, onViewProfile }) => {
     const [user, setUser] = useState<User | null>(null);
     const [memberDetails, setMemberDetails] = useState<Member | null>(null);
     const [posts, setPosts] = useState<Post[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [showCard, setShowCard] = useState(false);
     const { addToast } = useToast();
 
     useEffect(() => {
         const fetchProfileData = async () => {
             setIsLoading(true);
+            setShowCard(false); // Reset card view on profile change
             try {
                 const [userData, postsData] = await Promise.all([
                     api.getUserProfile(userId),
@@ -48,6 +54,8 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                     if (userData.role === 'member') {
                         const memberData = await api.getMemberByUid(userId);
                         setMemberDetails(memberData);
+                    } else {
+                        setMemberDetails(null);
                     }
                 } else {
                     addToast("Could not find user profile.", "error");
@@ -73,7 +81,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
 
     const handleUpvote = async (postId: string) => {
         try {
-            await api.upvotePost(postId, currentUserId);
+            await api.upvotePost(postId, currentUser.id);
         } catch (error) {
             addToast("Could not process upvote.", "error");
         }
@@ -85,7 +93,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     };
 
     if (isLoading) {
-        return <div className="text-center p-10">Loading profile...</div>;
+        return <div className="text-center p-10 text-gray-300">Loading profile...</div>;
     }
 
     if (!user) {
@@ -94,7 +102,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                  <button onClick={onBack} className="inline-flex items-center mb-6 text-sm font-medium text-green-400 hover:text-green-300">
                     <ArrowLeftIcon className="h-4 w-4 mr-2" /> Back
                 </button>
-                <div className="text-center p-10">User not found.</div>
+                <div className="text-center p-10 text-gray-300">User not found.</div>
             </div>
         );
     }
@@ -102,6 +110,8 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const skillsArray = memberDetails?.skills?.split(',').map(s => s.trim()).filter(Boolean) || [];
     const interestsArray = memberDetails?.interests?.split(',').map(s => s.trim()).filter(Boolean) || [];
     const passionsArray = memberDetails?.passions?.split(',').map(s => s.trim()).filter(Boolean) || [];
+
+    const isOwnProfile = user.id === currentUser.id;
 
     return (
         <div className="animate-fade-in">
@@ -113,21 +123,48 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
             <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                     <div>
-                        <h2 className="text-3xl font-bold text-white">{user.name}</h2>
+                        <div className="flex items-center gap-3">
+                            <h2 className="text-3xl font-bold text-white">{user.name}</h2>
+                            <div className="relative group flex items-center gap-1">
+                                <span className="font-mono text-sm py-0.5 px-2 rounded-full bg-slate-700 text-green-400">
+                                    CR: {user.credibility_score ?? 100}
+                                </span>
+                                <InfoIcon className="h-4 w-4 text-gray-400" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 bg-slate-900 text-white text-xs rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-slate-700 z-10">
+                                    The Credibility Score reflects a member's standing in the community. It starts at 100 and can be affected by community reports.
+                                </div>
+                            </div>
+                        </div>
                         <p className="text-lg text-green-400">{memberDetails?.profession || <span className="capitalize">{user.role}</span>}</p>
                         <p className="text-sm text-gray-400">{user.circle}</p>
                     </div>
-                    {user.id !== currentUserId && (
-                         <button 
-                            onClick={() => onStartChat(user.id)}
-                            className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 w-full sm:w-auto"
-                        >
-                            <MessageSquareIcon className="h-4 w-4" />
-                            <span>Send Message</span>
-                        </button>
-                    )}
+                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        {!isOwnProfile && (
+                             <button 
+                                onClick={() => onStartChat(user.id)}
+                                className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 w-full sm:w-auto"
+                            >
+                                <MessageSquareIcon className="h-4 w-4" />
+                                <span>Send Message</span>
+                            </button>
+                        )}
+                        {user.role === 'member' && memberDetails && (
+                            <button
+                                onClick={() => setShowCard(prev => !prev)}
+                                className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-slate-700 text-white text-sm font-semibold rounded-md hover:bg-slate-600 w-full sm:w-auto"
+                            >
+                                <IdCardIcon className="h-4 w-4" />
+                                <span>{showCard ? 'View Profile' : 'View Card'}</span>
+                            </button>
+                        )}
+                    </div>
                 </div>
                 
+                {showCard && memberDetails ? (
+                     <div className="mt-6">
+                        <MemberCard user={user} memberDetails={memberDetails} />
+                    </div>
+                ) : (
                 <div className="mt-6 pt-4 border-t border-slate-700 space-y-6">
                     {/* ABOUT SECTION */}
                     <div>
@@ -139,14 +176,17 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                         </dl>
                     </div>
                     
-                    {/* CONTACT SECTION */}
-                    <div>
-                        <h3 className="text-md font-semibold text-gray-300 mb-2">Contact Information</h3>
-                        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                            <DetailItem label="Email" value={user.email} />
-                            <DetailItem label="Phone Number" value={user.phone} />
-                        </dl>
-                    </div>
+                    {/* CONTACT SECTION (only show to admins or self) */}
+                    {(currentUser.role === 'admin' || isOwnProfile) && (
+                        <div>
+                            <h3 className="text-md font-semibold text-gray-300 mb-2">Contact Information</h3>
+                            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                                <DetailItem label="Email" value={user.email} />
+                                <DetailItem label="Phone Number" value={user.phone} />
+                            </dl>
+                        </div>
+                    )}
+
 
                     {/* MEMBER-SPECIFIC DETAILS */}
                     {user.role === 'member' && (
@@ -172,8 +212,10 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                         </>
                     )}
                 </div>
+                )}
             </div>
 
+            {!showCard && (
             <div className="mt-8">
                 <h3 className="text-xl font-semibold text-white mb-4">Posts by {user.name}</h3>
                 {posts.length > 0 ? (
@@ -182,7 +224,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                            <PostItem 
                                 key={post.id} 
                                 post={post} 
-                                currentUser={{id: currentUserId} as User} 
+                                currentUser={currentUser} 
                                 onUpvote={handleUpvote}
                                 onDelete={handlePlaceholder}
                                 onEdit={handlePlaceholder}
@@ -199,6 +241,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                     </div>
                 )}
             </div>
+            )}
         </div>
     );
 };

@@ -89,7 +89,7 @@ export const api = {
     return newAgent;
   },
 
-  memberSignup: async (memberData: NewPublicMemberData, password: string): Promise<void> => {
+  memberSignup: async (memberData: NewPublicMemberData, password: string): Promise<MemberUser> => {
     const userCredential = await createUserWithEmailAndPassword(auth, memberData.email, password);
     const permanentUser = userCredential.user;
 
@@ -126,6 +126,7 @@ export const api = {
             id_card_number: memberData.national_id,
         };
         await setDoc(doc(usersCollection, permanentUser.uid), newUserProfile);
+        return newUserProfile;
     } catch (dbError) {
         console.error("DB write failed after user creation:", dbError);
         // This error is critical. If the DB write fails, the user has an auth account

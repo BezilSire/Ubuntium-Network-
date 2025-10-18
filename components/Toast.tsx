@@ -8,15 +8,15 @@ export const ToastContainer: React.FC = () => {
   const { toasts, removeToast } = useToast();
 
   const icons = {
-    success: <CheckCircleIcon className="h-6 w-6 text-green-400" />,
-    error: <XCircleIcon className="h-6 w-6 text-red-400" />,
-    info: <UserCircleIcon className="h-6 w-6 text-blue-400" />,
+    success: <CheckCircleIcon className="h-6 w-6 text-green-500" />,
+    error: <XCircleIcon className="h-6 w-6 text-red-500" />,
+    info: <UserCircleIcon className="h-6 w-6 text-blue-500" />,
   };
   
   const colors = {
-    success: 'bg-slate-800 border-green-700',
-    error: 'bg-slate-800 border-red-700',
-    info: 'bg-slate-800 border-blue-700'
+    success: 'bg-white dark:bg-slate-800 border-green-500 dark:border-green-700',
+    error: 'bg-white dark:bg-slate-800 border-red-500 dark:border-red-700',
+    info: 'bg-white dark:bg-slate-800 border-blue-500 dark:border-blue-700'
   };
 
   return (
@@ -34,12 +34,12 @@ export const ToastContainer: React.FC = () => {
           <div className="flex-shrink-0">
             {icons[toast.type]}
           </div>
-          <div className="ml-3 text-sm font-medium text-gray-200">
+          <div className="ml-3 text-sm font-medium text-slate-800 dark:text-gray-200">
             {toast.message}
           </div>
           <button
             onClick={() => removeToast(toast.id)}
-            className="ml-auto -mx-1.5 -my-1.5 bg-transparent rounded-lg focus:ring-2 focus:ring-gray-300 p-1.5 hover:bg-slate-700 inline-flex h-8 w-8 text-gray-400 hover:text-white"
+            className="ml-auto -mx-1.5 -my-1.5 bg-transparent rounded-lg focus:ring-2 focus:ring-gray-400 p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 inline-flex h-8 w-8 text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
             aria-label="Close"
           >
             <span className="sr-only">Close</span>

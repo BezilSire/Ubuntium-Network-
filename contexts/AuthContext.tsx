@@ -4,7 +4,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from './ToastContext';
 import { api } from '../services/apiService';
 import { auth, db } from '../services/firebase';
-import { User, Agent, NewPublicMemberData, Member } from '../types';
+import { User, Agent, NewPublicMemberData, Member, MemberUser } from '../types';
 
 // Define the shape of the context value
 interface AuthContextType {
@@ -101,7 +101,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const agentSignup = useCallback(async (credentials: Pick<Agent, 'name' | 'email' | 'password' | 'circle'>) => {
     setIsProcessingAuth(true);
     try {
-      await api.signup(credentials.name, credentials.email, credentials.password, credentials.circle);
+      const newAgent = await api.signup(credentials.name, credentials.email, credentials.password, credentials.circle);
+      setCurrentUser(newAgent);
       addToast(`Account created successfully!`, 'success');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
@@ -115,7 +116,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const memberSignup = useCallback(async (memberData: NewPublicMemberData, password: string) => {
     setIsProcessingAuth(true);
     try {
-        await api.memberSignup(memberData, password);
+        const newMemberUser = await api.memberSignup(memberData, password);
+        setCurrentUser(newMemberUser);
         addToast(`Registration submitted! An admin will review it shortly.`, 'success');
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";

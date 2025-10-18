@@ -16,6 +16,9 @@ import { RepeatIcon } from './icons/RepeatIcon';
 import { ShareIcon } from './icons/ShareIcon';
 import { RepostModal } from './RepostModal';
 import { ActivityItem } from './ActivityItem';
+import { LightbulbIcon } from './icons/LightbulbIcon';
+import { BriefcaseIcon } from './icons/BriefcaseIcon';
+import { UsersIcon } from './icons/UsersIcon';
 
 interface PostsFeedProps {
   user: User;
@@ -42,14 +45,52 @@ export const PostItem: React.FC<{
     const hasUpvoted = post.upvotes.includes(currentUser.id);
     const isDistressPost = post.type === 'distress';
   
+    const typeStyles: Record<string, { icon: React.ReactNode; borderColor: string; title: string }> = {
+        proposal: {
+          icon: <LightbulbIcon className="h-5 w-5 text-blue-400" />,
+          borderColor: 'border-blue-500/50',
+          title: 'Proposal',
+        },
+        offer: {
+          icon: <UsersIcon className="h-5 w-5 text-purple-400" />,
+          borderColor: 'border-purple-500/50',
+          title: 'Offer',
+        },
+        opportunity: {
+          icon: <BriefcaseIcon className="h-5 w-5 text-yellow-400" />,
+          borderColor: 'border-yellow-500/50',
+          title: 'Opportunity',
+        },
+        distress: {
+          icon: <SirenIcon className="h-10 w-10 text-red-500 flex-shrink-0" />,
+          borderColor: 'border-red-500/80',
+          title: 'Distress Signal',
+        },
+        general: {
+          icon: null,
+          borderColor: 'border-transparent',
+          title: '',
+        },
+    };
+
+    const style = typeStyles[post.type] || typeStyles.general;
+
     return (
-        <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 ${isDistressPost ? 'border-2 border-red-500/80 motion-safe:animate-pulse' : ''}`}>
+        <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 border-l-4 ${style.borderColor} ${isDistressPost ? 'motion-safe:animate-pulse' : ''}`}>
             {post.repostedFrom && (
                 <div className="text-xs text-gray-400 flex items-center space-x-2">
                     <RepeatIcon className="h-4 w-4" />
                     <span>Reposted by <button onClick={() => onViewProfile(post.authorId)} className="font-semibold hover:underline">{post.authorName === currentUser.name ? "You" : post.authorName}</button></span>
                 </div>
             )}
+
+            {style.title && post.type !== 'distress' && (
+                <div className="flex items-center space-x-2 text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                    {style.icon}
+                    <span>{style.title}</span>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex items-start space-x-3">
                  {isDistressPost ? 

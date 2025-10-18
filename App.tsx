@@ -107,8 +107,8 @@ const App: React.FC = () => {
 
   if (isLoadingAuth) {
     return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-            <p className="text-white text-lg">Loading Portal...</p>
+        <div className="min-h-screen bg-gray-100 dark:bg-slate-900 flex items-center justify-center">
+            <p className="text-slate-700 dark:text-white text-lg">Loading Portal...</p>
         </div>
     );
   }
@@ -116,7 +116,7 @@ const App: React.FC = () => {
   // If a profile is being viewed globally (e.g., from search), render it as an overlay.
   if (globalViewingProfileId && currentUser) {
     return (
-      <div className="min-h-screen bg-slate-900 text-gray-200">
+      <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
         <ToastContainer />
         <Header 
           user={currentUser} 
@@ -126,7 +126,7 @@ const App: React.FC = () => {
         <main className="p-4 sm:p-6 lg:p-8">
             <PublicProfile 
                 userId={globalViewingProfileId}
-                currentUserId={currentUser.id}
+                currentUser={currentUser}
                 onBack={() => setGlobalViewingProfileId(null)}
                 onStartChat={() => {
                   // This is a complex navigation action. For now, guide the user.
@@ -216,7 +216,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-gray-200">
+    <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
       <ToastContainer />
       <Header user={currentUser} onLogout={handleLogoutWithReset} onViewProfile={handleViewProfile} />
       {renderDashboard()}
