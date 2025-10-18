@@ -170,7 +170,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, filter = 'all', auth
         });
         setActivities([]);
     } else {
-        unsubPosts = api.listenForPosts(filter, (fetchedPosts) => {
+        // FIX: Explicitly cast 'filter' to its defined union type. This resolves a TypeScript error likely caused by a project configuration issue where 'filter' is incorrectly inferred as a generic 'string'.
+        unsubPosts = api.listenForPosts(filter as Post['type'] | 'all', (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
         });

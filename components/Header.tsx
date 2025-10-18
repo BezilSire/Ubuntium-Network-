@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onLogout, onViewProfile })
           
           {user && (
             <div className="flex-1 flex justify-center px-4">
-               <GlobalSearch onViewProfile={onViewProfile} currentUser={user} />
+               <GlobalSearch onProfileSelect={onViewProfile} currentUser={user} />
             </div>
           )}
 

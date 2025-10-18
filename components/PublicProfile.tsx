@@ -21,6 +21,12 @@ const DetailItem: React.FC<{label: string, value: string | undefined}> = ({label
     </div>
 );
 
+const Pill: React.FC<{text: string}> = ({ text }) => (
+    <span className="inline-block bg-slate-700 rounded-full px-3 py-1 text-sm font-semibold text-gray-300 mr-2 mb-2">
+        {text}
+    </span>
+);
+
 export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUserId, onBack, onStartChat, onViewProfile }) => {
     const [user, setUser] = useState<User | null>(null);
     const [memberDetails, setMemberDetails] = useState<Member | null>(null);
@@ -56,7 +62,13 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
             }
         };
 
-        fetchProfileData();
+        if (userId) {
+          fetchProfileData();
+        } else {
+          addToast("User ID is missing.", "error");
+          setIsLoading(false);
+          setUser(null);
+        }
     }, [userId, addToast]);
 
     const handleUpvote = async (postId: string) => {
@@ -87,6 +99,10 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
         );
     }
     
+    const skillsArray = memberDetails?.skills?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const interestsArray = memberDetails?.interests?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const passionsArray = memberDetails?.passions?.split(',').map(s => s.trim()).filter(Boolean) || [];
+
     return (
         <div className="animate-fade-in">
             <button onClick={onBack} className="inline-flex items-center mb-6 text-sm font-medium text-green-400 hover:text-green-300">
@@ -112,16 +128,50 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                     )}
                 </div>
                 
-                {(user.bio || memberDetails?.bio) && (
-                    <div className="mt-6 pt-4 border-t border-slate-700">
+                <div className="mt-6 pt-4 border-t border-slate-700 space-y-6">
+                    {/* ABOUT SECTION */}
+                    <div>
                         <h3 className="text-md font-semibold text-gray-300 mb-2">About</h3>
-                        <p className="text-gray-300 whitespace-pre-wrap">{user.bio || memberDetails?.bio}</p>
+                        <p className="text-gray-300 whitespace-pre-wrap">{user.bio || memberDetails?.bio || 'No bio provided.'}</p>
+                        <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                            <DetailItem label="Gender" value={memberDetails?.gender} />
+                            <DetailItem label="Age" value={memberDetails?.age} />
+                        </dl>
                     </div>
-                )}
-                 <dl className="mt-6 pt-4 border-t border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                    <DetailItem label="Gender" value={memberDetails?.gender} />
-                    <DetailItem label="Age" value={memberDetails?.age} />
-                 </dl>
+                    
+                    {/* CONTACT SECTION */}
+                    <div>
+                        <h3 className="text-md font-semibold text-gray-300 mb-2">Contact Information</h3>
+                        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                            <DetailItem label="Email" value={user.email} />
+                            <DetailItem label="Phone Number" value={user.phone} />
+                        </dl>
+                    </div>
+
+                    {/* MEMBER-SPECIFIC DETAILS */}
+                    {user.role === 'member' && (
+                        <>
+                            {skillsArray.length > 0 && (
+                                <div>
+                                    <h3 className="text-md font-semibold text-gray-300 mb-2">Skills</h3>
+                                    <div>{skillsArray.map(skill => <Pill key={skill} text={skill} />)}</div>
+                                </div>
+                            )}
+                            {interestsArray.length > 0 && (
+                                <div>
+                                    <h3 className="text-md font-semibold text-gray-300 mb-2">Interests</h3>
+                                    <div>{interestsArray.map(item => <Pill key={item} text={item} />)}</div>
+                                </div>
+                            )}
+                            {passionsArray.length > 0 && (
+                                <div>
+                                    <h3 className="text-md font-semibold text-gray-300 mb-2">Passions</h3>
+                                    <div>{passionsArray.map(item => <Pill key={item} text={item} />)}</div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
 
             <div className="mt-8">
@@ -138,6 +188,8 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                                 onEdit={handlePlaceholder}
                                 onReport={handlePlaceholder}
                                 onViewProfile={onViewProfile}
+                                onRepost={handlePlaceholder}
+                                onShare={handlePlaceholder}
                            />
                         ))}
                     </div>
