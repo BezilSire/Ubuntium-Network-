@@ -59,13 +59,21 @@ const ReportReviewModal: React.FC<{
     );
 };
 
-export const ReportsView: React.FC<{ reports: Report[], onViewProfile: (userId: string) => void; }> = ({ reports, onViewProfile }) => {
+interface ReportsViewProps {
+    reports: Report[];
+    onViewProfile: (userId: string) => void;
+    onResolve: (reportId: string, postId: string, authorId: string) => Promise<void>;
+    onDismiss: (reportId: string) => Promise<void>;
+}
+
+
+export const ReportsView: React.FC<ReportsViewProps> = ({ reports, onViewProfile, onResolve, onDismiss }) => {
     const [selectedReport, setSelectedReport] = useState<Report | null>(null);
     const { addToast } = useToast();
 
     const handleResolve = async (reportId: string, postId: string, authorId: string) => {
         try {
-            await api.resolvePostReport(reportId, postId, authorId);
+            await onResolve(reportId, postId, authorId);
             addToast("Report resolved. Post deleted and user penalized.", "success");
         } catch (error) {
             addToast("Failed to resolve report.", "error");
@@ -76,7 +84,7 @@ export const ReportsView: React.FC<{ reports: Report[], onViewProfile: (userId: 
 
     const handleDismiss = async (reportId: string) => {
          try {
-            await api.dismissReport(reportId);
+            await onDismiss(reportId);
             addToast("Report has been dismissed.", "info");
         } catch (error) {
             addToast("Failed to dismiss report.", "error");

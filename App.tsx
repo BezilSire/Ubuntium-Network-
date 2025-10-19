@@ -84,8 +84,9 @@ const App: React.FC = () => {
   }, [isOnline, hasSyncedOnConnect, addToast]);
 
   const handleSendBroadcast = async (message: string) => {
+    if (!currentUser) throw new Error("Not authenticated.");
     try {
-        const newBroadcast = await api.sendBroadcast(message);
+        const newBroadcast = await api.sendBroadcast(currentUser, message);
         setBroadcasts(prev => [newBroadcast, ...prev]);
         addToast('Broadcast sent successfully!', 'success');
     } catch (error) {

@@ -42,7 +42,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({ user, initialTarget, o
   }, [user.id, user.role, (user as MemberUser).status, addToast]);
   
   useEffect(() => {
-    api.getChatContacts(user, false).then(setChatContacts);
+    api.getChatContacts(user).then(setChatContacts);
   }, [user]);
 
   useEffect(() => {

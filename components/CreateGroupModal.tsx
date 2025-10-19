@@ -21,7 +21,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
-      api.getChatContacts(currentUser, true)
+      api.getChatContacts(currentUser)
         .then(members => {
           setAllMembers(members || []);
           setIsLoading(false);

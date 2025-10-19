@@ -369,13 +369,25 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
         setActivities([]);
     }
     else {
+        let postsLoaded = false;
+        let activitiesLoaded = false;
+
+        const checkLoadingDone = () => {
+            if (postsLoaded && activitiesLoaded) {
+                setIsLoading(false);
+            }
+        }
+
         unsubPosts = api.listenForPosts('all', (fetchedPosts) => {
             setPosts(fetchedPosts);
+            postsLoaded = true;
+            checkLoadingDone();
         }, onError);
 
         unsubActivities = api.listenForActivity((fetchedActivities) => {
             setActivities(fetchedActivities);
-            setIsLoading(false); // Set loading to false after both are fetched
+            activitiesLoaded = true;
+            checkLoadingDone();
         }, onError);
     }
 
@@ -416,7 +428,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     if (!postToDelete) return;
     try {
         if (postToDelete.type === 'distress') {
-            await api.deleteDistressPost(postToDelete.id, postToDelete.authorId);
+            await api.deleteDistressPost(user, postToDelete.id, postToDelete.authorId);
         } else {
             await api.deletePost(postToDelete.id);
         }

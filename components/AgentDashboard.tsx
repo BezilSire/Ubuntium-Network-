@@ -55,7 +55,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
     const fetchMembers = async () => {
       try {
         setIsLoading(true);
-        const agentMembers = await api.getAgentMembers(user.id);
+        const agentMembers = await api.getAgentMembers(user);
         setMembers(agentMembers);
       } catch (error) {
         addToast('Could not load your members.', 'error');
@@ -64,7 +64,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
       }
     };
     fetchMembers();
-  }, [user.id, addToast]);
+  }, [user, addToast]);
   
   // Reset pagination when search query changes
   useEffect(() => {

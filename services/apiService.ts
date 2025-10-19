@@ -1,5 +1,3 @@
-
-
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -263,6 +261,9 @@ export const api = {
 
   // Agent actions
   registerMember: async (agent: Agent, memberData: NewMember): Promise<Member> => {
+    if (agent.role !== 'agent') {
+        throw new Error("Permission denied: Only agents can register new members.");
+    }
     let welcome_message = `Welcome to the Ubuntium Global Commons, ${memberData.full_name}! We are thrilled to have you join the ${agent.circle} Circle. I am because we are.`;
     let needs_welcome_update = false;
 
@@ -288,8 +289,11 @@ export const api = {
     return { ...newMember, id: docRef.id };
   },
 
-  getAgentMembers: async (agentId: string): Promise<Member[]> => {
-    const q = query(membersCollection, where("agent_id", "==", agentId));
+  getAgentMembers: async (currentUser: User): Promise<Member[]> => {
+    if (currentUser.role !== 'agent') {
+      throw new Error("Permission denied: only agents can view their members.");
+    }
+    const q = query(membersCollection, where("agent_id", "==", currentUser.id));
     const querySnapshot = await getDocs(q);
     const members = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
     members.sort((a, b) => new Date(b.date_registered).getTime() - new Date(a.date_registered).getTime());
@@ -297,47 +301,35 @@ export const api = {
   },
   
   // Admin actions
-  listenForAllUsers: (callback: (users: User[]) => void, onError: (error: Error) => void): (() => void) => {
-      const fetchAll = async () => {
-          try {
-              // Securely fetch users by getting IDs from the public `members` collection first.
-              // Limitation: This may not find admins or agents who have never registered a member.
-              const membersSnapshot = await getDocs(query(membersCollection));
-              const memberData = membersSnapshot.docs.map(doc => doc.data());
-
-              const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
-              // FIX: Add type guard to ensure agentUids is string[]
-              const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
-              
-              const allUids = [...new Set([...memberUids, ...agentUids])];
-              
-              if (allUids.length === 0) {
-                  callback([]);
-                  return;
-              }
-
-              const users = await fetchUsersByUids(allUids, { includeInactive: true });
-              
-              users.sort((a,b) => a.name.localeCompare(b.name));
-              callback(users);
-          } catch (e) {
-              if (e instanceof Error) {
-                  onError(e);
-              } else {
-                  onError(new Error('An unknown error occurred fetching users.'));
-              }
-          }
-      };
-      fetchAll();
-      return () => {}; // Return a no-op unsubscribe function as this is now a one-time fetch.
+  listenForAllUsers: (currentUser: User, callback: (users: User[]) => void, onError: (error: Error) => void): (() => void) => {
+      if (currentUser.role !== 'admin') {
+        onError(new Error("Permission denied: Admin access required."));
+        return () => {};
+      }
+      const q = query(usersCollection, orderBy("name", "asc"));
+      return onSnapshot(q,
+        (snapshot) => {
+            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            callback(users);
+        },
+        (error) => {
+            console.error("Firestore listener error (all users):", error);
+            onError(error);
+        }
+      );
   },
   
-  updateUserRole: async (uid: string, newRole: User['role']): Promise<void> => {
+  updateUserRole: async (currentUser: User, uid: string, newRole: User['role']): Promise<void> => {
+    if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, { role: newRole });
   },
 
-  listenForAllMembers: (callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
+  listenForAllMembers: (currentUser: User, callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
+      if (currentUser.role !== 'admin') {
+        onError(new Error("Permission denied: Admin access required."));
+        return () => {};
+      }
       const q = query(membersCollection);
       return onSnapshot(q,
         (snapshot) => {
@@ -359,7 +351,11 @@ export const api = {
       );
   },
   
-  listenForPendingMembers: (callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
+  listenForPendingMembers: (currentUser: User, callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
+      if (currentUser.role !== 'admin') {
+        onError(new Error("Permission denied: Admin access required."));
+        return () => {};
+      }
       const q = query(membersCollection, where("payment_status", "==", "pending_verification"));
       return onSnapshot(q, 
         (snapshot) => {
@@ -374,38 +370,26 @@ export const api = {
       );
   },
 
-  listenForAllAgents: (callback: (agents: Agent[]) => void, onError: (error: Error) => void): () => void => {
-      const fetchAgents = async () => {
-          try {
-              // 1. Query the public `members` collection to get a list of agent IDs.
-              // This avoids a broad query on the `users` collection.
-              // Limitation: This will only find agents who have registered at least one member.
-              const membersSnapshot = await getDocs(query(membersCollection));
-              // FIX: Add type guard to ensure agentIds are strings
-              const agentIds = [...new Set(membersSnapshot.docs.map(doc => doc.data().agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP'))];
-
-              if (agentIds.length === 0) {
-                  callback([]);
-                  return;
-              }
-
-              // 2. Fetch the full user profiles for these agent IDs.
-              const agents = await fetchUsersByUids(agentIds, { includeInactive: true });
-              callback(agents as Agent[]);
-
-          } catch (e) {
-              if (e instanceof Error) {
-                  onError(e);
-              } else {
-                  onError(new Error('An unknown error occurred fetching agents.'));
-              }
-          }
-      };
-      fetchAgents();
-      return () => {}; // Return a no-op unsubscribe function.
+  listenForAllAgents: (currentUser: User, callback: (agents: Agent[]) => void, onError: (error: Error) => void): () => void => {
+      if (currentUser.role !== 'admin') {
+        onError(new Error("Permission denied: Admin access required."));
+        return () => {};
+      }
+      const q = query(usersCollection, where("role", "==", "agent"));
+      return onSnapshot(q,
+        (snapshot) => {
+            const agents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agent));
+            callback(agents);
+        },
+        (error) => {
+            console.error("Firestore listener error (all agents):", error);
+            onError(error);
+        }
+      );
   },
 
-  approveMember: async (member: Member): Promise<void> => {
+  approveMember: async (currentUser: User, member: Member): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       if (!member.uid) throw new Error("Member does not have a user account to approve.");
       
       const welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
@@ -436,7 +420,8 @@ export const api = {
       await batch.commit();
   },
 
-  rejectMember: async (member: Member): Promise<void> => {
+  rejectMember: async (currentUser: User, member: Member): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       const batch = writeBatch(db);
       const memberRef = doc(db, 'members', member.id);
       batch.update(memberRef, { payment_status: 'rejected' });
@@ -448,7 +433,8 @@ export const api = {
       await batch.commit();
   },
 
-  sendBroadcast: async (message: string): Promise<Broadcast> => {
+  sendBroadcast: async (currentUser: User, message: string): Promise<Broadcast> => {
+    if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
     const newBroadcast: Omit<Broadcast, 'id'> = {
       message,
       date: new Date().toISOString(),
@@ -463,17 +449,20 @@ export const api = {
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast));
   },
   
-   updatePaymentStatus: async (memberId: string, status: Member['payment_status']): Promise<void> => {
+   updatePaymentStatus: async (currentUser: User, memberId: string, status: Member['payment_status']): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       const memberDocRef = doc(db, 'members', memberId);
       await updateDoc(memberDocRef, { payment_status: status });
   },
   
-  resetDistressQuota: async (uid: string): Promise<void> => {
+  resetDistressQuota: async (currentUser: User, uid: string): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, { distress_calls_available: 2 });
   },
   
-  clearLastDistressPost: async (uid: string): Promise<void> => {
+  clearLastDistressPost: async (currentUser: User, uid: string): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       const userRef = doc(db, 'users', uid);
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data() as MemberUser;
@@ -638,22 +627,18 @@ export const api = {
     await batch.commit();
   },
 
-  createDistressPost: async (content: string): Promise<User> => {
-      const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error("Not authenticated");
-
-      const userRef = doc(db, 'users', currentUser.uid);
-      const userDoc = await getDoc(userRef);
-      const userData = userDoc.data() as MemberUser;
-      
-      if (userData.distress_calls_available <= 0) {
+  createDistressPost: async (currentUser: MemberUser, content: string): Promise<User> => {
+      if (currentUser.role !== 'member') {
+          throw new Error("Permission denied: only members can send distress calls.");
+      }
+      if (currentUser.distress_calls_available <= 0) {
           throw new Error("No distress calls available.");
       }
       
       const newPostData: Omit<Post, 'id'> = {
-          authorId: userData.id,
+          authorId: currentUser.id,
           authorName: "Anonymous Member",
-          authorCircle: userData.circle || 'Unknown',
+          authorCircle: currentUser.circle || 'Unknown',
           content,
           date: new Date().toISOString(),
           upvotes: [],
@@ -662,13 +647,14 @@ export const api = {
           type: 'distress',
       };
       const postRef = await addDoc(postsCollection, newPostData);
-
+      
+      const userRef = doc(db, 'users', currentUser.id);
       await updateDoc(userRef, {
-          distress_calls_available: userData.distress_calls_available - 1,
+          distress_calls_available: currentUser.distress_calls_available - 1,
           last_distress_post_id: postRef.id
       });
       
-      const updatedUser = await getUserProfile(currentUser.uid);
+      const updatedUser = await getUserProfile(currentUser.id);
       if (!updatedUser) throw new Error("Could not refetch user profile.");
       return updatedUser;
   },
@@ -747,11 +733,34 @@ export const api = {
   },
 
   deletePost: async (postId: string): Promise<void> => {
+      const batch = writeBatch(db);
+
+      // 1. Reference to the post to be deleted
       const postRef = doc(db, 'posts', postId);
-      await deleteDoc(postRef);
+      batch.delete(postRef);
+
+      // 2. Query for and delete the associated activity feed item
+      const activityQuery = query(activityFeedCollection, where("link", "==", postId), limit(1));
+      const activitySnapshot = await getDocs(activityQuery);
+      if (!activitySnapshot.empty) {
+          batch.delete(activitySnapshot.docs[0].ref);
+      }
+      
+      // 3. Query for and delete all comments in the post's subcollection
+      const commentsRef = collection(db, 'posts', postId, 'comments');
+      const commentsSnapshot = await getDocs(commentsRef);
+      commentsSnapshot.docs.forEach(commentDoc => {
+          batch.delete(commentDoc.ref);
+      });
+
+      // 4. Commit all deletions at once
+      await batch.commit();
   },
   
-  deleteDistressPost: async (postId: string, authorId: string): Promise<void> => {
+  deleteDistressPost: async (currentUser: User, postId: string, authorId: string): Promise<void> => {
+      if (currentUser.role !== 'admin') {
+          throw new Error("Permission denied: Admin access required.");
+      }
       const batch = writeBatch(db);
       const postRef = doc(db, 'posts', postId);
       batch.delete(postRef);
@@ -852,6 +861,17 @@ export const api = {
     });
   },
 
+  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): () => void => {
+      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
+      return onSnapshot(q, 
+        (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))),
+        (error) => {
+            console.error("Firestore listener error (activity feed):", error);
+            onError(error);
+        }
+      );
+  },
+
   followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
     const batch = writeBatch(db);
     const currentUserRef = doc(db, 'users', currentUserId);
@@ -918,7 +938,11 @@ export const api = {
     await addDoc(reportsCollection, newReport);
   },
 
-  listenForReports: (callback: (reports: Report[]) => void, onError: (error: Error) => void): () => void => {
+  listenForReports: (currentUser: User, callback: (reports: Report[]) => void, onError: (error: Error) => void): () => void => {
+    if (currentUser.role !== 'admin') {
+        onError(new Error("Permission denied: Admin access required."));
+        return () => {};
+    }
     const q = query(reportsCollection, orderBy('date', 'desc'));
     return onSnapshot(q, 
         snapshot => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report))),
@@ -929,7 +953,8 @@ export const api = {
     );
   },
 
-  resolvePostReport: async (reportId: string, postId: string, authorId: string): Promise<void> => {
+  resolvePostReport: async (currentUser: User, reportId: string, postId: string, authorId: string): Promise<void> => {
+    if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
     const batch = writeBatch(db);
     const reportRef = doc(db, 'reports', reportId);
     batch.update(reportRef, { status: 'resolved' });
@@ -942,32 +967,48 @@ export const api = {
     await batch.commit();
   },
   
-  dismissReport: async (reportId: string): Promise<void> => {
+  dismissReport: async (currentUser: User, reportId: string): Promise<void> => {
+      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       const reportRef = doc(db, 'reports', reportId);
       await updateDoc(reportRef, { status: 'resolved' });
   },
 
   // Chat
-  getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
-    // Securely build user list from the members collection to avoid permission errors for non-admins.
+  // FIX: Add optional includeInactive parameter to support adding any user to a group.
+  getChatContacts: async (currentUser: User, includeInactive?: boolean): Promise<User[]> => {
+    if (currentUser.role === 'agent') {
+        return [];
+    }
+
+    // Since this is a public/discoverable feature, we source users via the public `members` collection
+    // to avoid running into Firestore rules that might restrict broad `users` collection queries for non-admins.
     const membersSnapshot = await getDocs(query(membersCollection));
     const memberData = membersSnapshot.docs.map(doc => doc.data());
 
     const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
-    // FIX: Add type guard to ensure agentUids is string[]
     const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
     
-    const allUids = [...new Set([...memberUids, ...agentUids])];
+    // Admins also need to be contactable.
+    const adminQuery = query(usersCollection, where("role", "==", "admin"));
+    const adminSnapshot = await getDocs(adminQuery);
+    const adminUids = adminSnapshot.docs.map(doc => doc.id);
     
-    const allActiveUsers = await fetchUsersByUids(allUids);
-    const usersWithoutCurrentUser = allActiveUsers.filter(user => user.id !== currentUser.id);
+    const allPublicUids = [...new Set([...memberUids, ...agentUids, ...adminUids])];
+    
+    const allUsers = await fetchUsersByUids(allPublicUids, { includeInactive: !!includeInactive });
+    const usersWithoutCurrentUser = allUsers.filter(user => user.id !== currentUser.id);
 
-    if (currentUser.role !== 'admin') {
-      // Members can only chat with other members for now to ensure security.
-      return usersWithoutCurrentUser.filter(user => user.role === 'member' || user.role === 'admin');
+    // If current user is an admin, they can chat with anyone.
+    if (currentUser.role === 'admin') {
+      return usersWithoutCurrentUser;
     }
-
-    return usersWithoutCurrentUser;
+    
+    // If current user is a member, they can only chat with other members and admins.
+    if (currentUser.role === 'member') {
+        return usersWithoutCurrentUser.filter(user => user.role === 'member' || user.role === 'admin');
+    }
+    
+    return []; // Should not be reached for agents or other roles
   },
   
   listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
@@ -1107,17 +1148,6 @@ export const api = {
           console.error(`Firestore listener error for notifications (${userId}):`, error);
           onError(error);
       });
-  },
-
-  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, 
-        (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))),
-        (error) => {
-            console.error("Firestore listener error (activity feed):", error);
-            onError(error);
-        }
-      );
   },
   
   markNotificationAsRead: (notificationId: string): Promise<void> => {

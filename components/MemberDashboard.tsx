@@ -71,7 +71,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
     }
     setIsSubmittingDistress(true);
     try {
-        const updatedUser = await api.createDistressPost(content);
+        const updatedUser = await api.createDistressPost(user, content);
         // This is a partial update; onUpdateUser merges it into the context state
         onUpdateUser({ 
             distress_calls_available: (updatedUser as MemberUser).distress_calls_available,

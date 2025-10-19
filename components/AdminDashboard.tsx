@@ -116,23 +116,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         handleStreamLoaded(dataType);
     };
 
-    const unsubUsers = api.listenForAllUsers(
+    const unsubUsers = api.listenForAllUsers(user,
         (data) => { setAllUsers(data); handleStreamLoaded('users'); },
         (e) => handleError('all users', e)
     );
-    const unsubMembers = api.listenForAllMembers(
+    const unsubMembers = api.listenForAllMembers(user,
         (data) => { setMembers(data); handleStreamLoaded('members'); },
         (e) => handleError('members', e)
     );
-    const unsubAgents = api.listenForAllAgents(
+    const unsubAgents = api.listenForAllAgents(user,
         (data) => { setAgents(data); handleStreamLoaded('agents'); },
         (e) => handleError('agents', e)
     );
-    const unsubPending = api.listenForPendingMembers(
+    const unsubPending = api.listenForPendingMembers(user,
         (data) => { setPendingMembers(data); handleStreamLoaded('pending'); },
         (e) => handleError('pending members', e)
     );
-    const unsubReports = api.listenForReports(
+    const unsubReports = api.listenForReports(user,
         (data) => { setReports(data); handleStreamLoaded('reports'); },
         (e) => handleError('reports', e)
     );
@@ -150,7 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         unsubReports();
         unsubConversations();
     };
-  }, [user.id, addToast]);
+  }, [user, addToast]);
 
   // Clear the initial chat target when navigating away from the connect page
   useEffect(() => {
@@ -243,7 +243,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const handleMarkComplete = async (member: Member) => {
     if (window.confirm(`Are you sure you want to mark ${member.full_name}'s payment as complete?`)) {
         try {
-            await api.updatePaymentStatus(member.id, 'complete');
+            await api.updatePaymentStatus(user, member.id, 'complete');
             addToast("Payment status updated.", "success");
         } catch {
             addToast("Failed to update payment status.", "error");
@@ -254,7 +254,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
    const handleResetQuota = async () => {
         if (!dialogState.member || !dialogState.member.uid) return;
         try {
-            await api.resetDistressQuota(dialogState.member.uid);
+            await api.resetDistressQuota(user, dialogState.member.uid);
             addToast(`Distress call quota has been reset for ${dialogState.member.full_name}.`, 'success');
         } catch {
             addToast("Failed to reset quota.", "error");
@@ -265,7 +265,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     const handleClearPost = async () => {
         if (!dialogState.member || !dialogState.member.uid) return;
         try {
-            await api.clearLastDistressPost(dialogState.member.uid);
+            await api.clearLastDistressPost(user, dialogState.member.uid);
             addToast(`Last distress post has been cleared for ${dialogState.member.full_name}.`, 'success');
         } catch {
             addToast("Failed to clear post.", "error");
@@ -275,7 +275,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
 
     const handleApproveMember = async (memberToApprove: Member) => {
         try {
-            await api.approveMember(memberToApprove);
+            await api.approveMember(user, memberToApprove);
             addToast(`${memberToApprove.full_name} has been approved and welcomed.`, 'success');
             setVerificationModalState({ isOpen: false, member: null });
         } catch (error) {
@@ -287,7 +287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
 
     const handleRejectMember = async (memberToReject: Member) => {
         try {
-            await api.rejectMember(memberToReject);
+            await api.rejectMember(user, memberToReject);
             addToast(`${memberToReject.full_name}'s registration has been rejected.`, 'info');
             setVerificationModalState({ isOpen: false, member: null });
         } catch (error) {
@@ -306,7 +306,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         if (!userToUpdate || !newRole) return;
         
         try {
-            await api.updateUserRole(userToUpdate.id, newRole);
+            await api.updateUserRole(user, userToUpdate.id, newRole);
             addToast(`${userToUpdate.name}'s role has been updated to ${newRole}.`, 'success');
         } catch {
             addToast('Failed to update user role.', 'error');
@@ -491,7 +491,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
             case 'users': return renderUsersView();
             case 'feed': return <PostsFeed user={user} feedType="all" isAdminView onViewProfile={onViewProfile} />;
             case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
-            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={onViewProfile} /></div>;
+            case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={onViewProfile} onResolve={(reportId, postId, authorId) => api.resolvePostReport(user, reportId, postId, authorId)} onDismiss={(reportId) => api.dismissReport(user, reportId)}/></div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;
             case 'notifications': return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile} />;
             default: return renderDashboardView();
