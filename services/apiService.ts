@@ -25,8 +25,7 @@ import {
   deleteDoc,
   writeBatch,
   increment,
-  serverTimestamp as firestoreServerTimestamp,
-  documentId
+  serverTimestamp as firestoreServerTimestamp
 } from 'firebase/firestore';
 import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { auth, db, rtdb } from './firebase';
@@ -170,62 +169,42 @@ export const api = {
   
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
     const q = query(
-        activityFeedCollection,
-        where("type", "==", "NEW_MEMBER"),
-        where("causerCircle", "==", circle),
-        orderBy("timestamp", "desc"),
-        limit(20) // Get more activities to account for duplicates
+        usersCollection,
+        where("circle", "==", circle),
+        limit(100)
     );
-    const activitySnap = await getDocs(q);
     
-    // Get unique user IDs, excluding the current user
-    const userIds = activitySnap.docs
-        .map(doc => doc.data().causerId as string)
-        .filter(id => id !== currentUserId);
-    
-    const uniqueUserIds = [...new Set(userIds)].slice(0, 10);
-
-    if (uniqueUserIds.length === 0) {
-        return [];
-    }
-    
-    // Firestore 'in' queries can handle up to 30 items, so a single query is fine.
-    const usersQuery = query(usersCollection, where(documentId(), 'in', uniqueUserIds));
-    const usersSnap = await getDocs(usersQuery);
-    
-    const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-    
-    // The query result order isn't guaranteed, so we'll sort based on the original activity order.
-    return users.sort((a, b) => uniqueUserIds.indexOf(a.id) - uniqueUserIds.indexOf(b.id));
+    const usersSnap = await getDocs(q);
+    const users = usersSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as User))
+        .filter(user => 
+            user.id !== currentUserId &&
+            user.role === 'member' &&
+            user.status === 'active'
+        )
+        .sort((a, b) => (b.lastSeen?.toMillis() || 0) - (a.lastSeen?.toMillis() || 0));
+        
+    return users.slice(0, 10);
   },
 
   getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
     const q = query(
-        postsCollection,
-        where("authorCircle", "==", circle),
-        where("type", "!=", "distress"),
-        orderBy("date", "desc"),
-        limit(50) // Look at the last 50 posts in the circle
+        usersCollection,
+        where("circle", "==", circle),
+        limit(100)
     );
-    const postsSnap = await getDocs(q);
     
-    const authorIds = postsSnap.docs
-        .map(doc => doc.data().authorId as string)
-        .filter(id => id !== currentUserId);
-    
-    const uniqueAuthorIds = [...new Set(authorIds)].slice(0, 12); // Get up to 12 unique authors
-
-    if (uniqueAuthorIds.length === 0) {
-        return [];
-    }
-
-    const usersQuery = query(usersCollection, where(documentId(), 'in', uniqueAuthorIds));
-    const usersSnap = await getDocs(usersQuery);
-
-    const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-    
-    // Sort based on the order of appearance in the unique list
-    return users.sort((a, b) => uniqueAuthorIds.indexOf(a.id) - uniqueAuthorIds.indexOf(b.id));
+    const usersSnap = await getDocs(q);
+    const users = usersSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as User))
+        .filter(user => 
+            user.id !== currentUserId &&
+            user.role === 'member' &&
+            user.status === 'active'
+        )
+        .sort((a, b) => a.name.localeCompare(b.name));
+        
+    return users.slice(0, 12);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -325,7 +304,7 @@ export const api = {
   },
   
   // Admin actions
-  listenForAllUsers: (callback: (users: User[]) => void, onError: (error: Error) => void): () => void => {
+  listenForAllUsers: (callback: (users: User[]) => void, onError: (error: Error) => void): (() => void) => {
       const q = query(usersCollection, orderBy("name", "asc"));
       return onSnapshot(q,
         (snapshot) => {
@@ -571,27 +550,42 @@ export const api = {
   },
 
   listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
-    let q;
-    if (filter === 'all') {
-        q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
-    } else {
-        q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
-    }
+    // Robust query: Order by date and filter client-side to avoid composite indexes.
+    const q = query(postsCollection, orderBy('date', 'desc'), limit(100)); // Fetch more to filter from
     
     return onSnapshot(q, (snapshot) => {
-        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        callback(posts);
+        let posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        
+        const allowedTypes = ['general', 'proposal', 'offer', 'opportunity'];
+        
+        if (filter === 'all') {
+            posts = posts.filter(p => allowedTypes.includes(p.type));
+        } else {
+            posts = posts.filter(p => p.type === filter);
+        }
+        callback(posts.slice(0, 50)); // Return original intended limit
     }, (error) => {
         console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
     });
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void): () => void => {
-    const q = query(postsCollection, where("authorId", "==", authorId), orderBy('date', 'desc'), limit(50));
+    // Robust query: Query by authorId only and sort client-side.
+    const q = query(postsCollection, where("authorId", "==", authorId), limit(50));
     return onSnapshot(q, (snapshot) => {
         const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         callback(posts);
     });
+  },
+
+  getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
+    // Robust query: Query by authorId only and sort client-side.
+    const q = query(postsCollection, where("authorId", "==", authorId));
+    const snapshot = await getDocs(q);
+    const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+    posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return posts;
   },
 
   upvotePost: async (postId: string, userId: string): Promise<void> => {
@@ -646,8 +640,27 @@ export const api = {
   addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
     const postRef = doc(db, 'posts', postId);
     const commentsRef = collection(postRef, 'comments');
-    await addDoc(commentsRef, { ...commentData, timestamp: Timestamp.now() });
+    const timestamp = Timestamp.now();
+    await addDoc(commentsRef, { ...commentData, timestamp });
     await updateDoc(postRef, { commentCount: increment(1) });
+
+    const postDoc = await getDoc(postRef);
+    if(postDoc.exists()){
+      const post = postDoc.data() as Post;
+      if (post.authorId !== commentData.authorId) {
+        const notification: Omit<Notification, 'id'> = {
+          userId: post.authorId,
+          type: 'POST_COMMENT',
+          message: `${commentData.authorName} commented on your post.`,
+          link: postId,
+          causerId: commentData.authorId,
+          causerName: commentData.authorName,
+          timestamp,
+          read: false,
+        };
+        await addDoc(notificationsCollection, notification);
+      }
+    }
   },
 
   deleteComment: async (postId: string, commentId: string): Promise<void> => {
@@ -677,21 +690,46 @@ export const api = {
         return () => {};
     }
     const queryIds = followingIds.slice(0, 30); // Firestore 'in' query limit is 30
-    const q = query(postsCollection, where('authorId', 'in', queryIds), orderBy('date', 'desc'), limit(50));
+    const q = query(postsCollection, where('authorId', 'in', queryIds), limit(50));
     return onSnapshot(q, (snapshot) => {
         const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         callback(posts);
     }, (error) => console.error(`Firestore listener error for following posts:`, error));
   },
 
   followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
     const currentUserRef = doc(db, 'users', currentUserId);
-    await updateDoc(currentUserRef, { following: arrayUnion(targetUserId) });
+    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
+    await batch.commit();
+
+    const currentUserDoc = await getDoc(currentUserRef);
+    if (currentUserDoc.exists()) {
+      const causerName = currentUserDoc.data().name;
+      const notification: Omit<Notification, 'id'> = {
+        userId: targetUserId,
+        type: 'NEW_FOLLOWER',
+        message: `${causerName} started following you.`,
+        link: currentUserId,
+        causerId: currentUserId,
+        causerName: causerName,
+        timestamp: Timestamp.now(),
+        read: false,
+      };
+      await addDoc(notificationsCollection, notification);
+    }
   },
 
   unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
     const currentUserRef = doc(db, 'users', currentUserId);
-    await updateDoc(currentUserRef, { following: arrayRemove(targetUserId) });
+    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
+    await batch.commit();
   },
 
   reportUser: async (reporter: User, reportedUser: User, reason: string, details: string): Promise<void> => {
@@ -749,7 +787,7 @@ export const api = {
 
   // Chat
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
-    // Admins can see everyone, which is fine as they have permissions.
+    // Admins can contact anyone.
     if (currentUser.role === 'admin') {
         const q = query(usersCollection, where("status", "==", "active"));
         const snapshot = await getDocs(q);
@@ -758,44 +796,15 @@ export const api = {
             .filter(user => user.id !== currentUser.id);
     }
     
-    // For non-admins, securely fetch contacts based on their connections and admins.
-    const contactIds = new Set<string>();
-    
-    // Add followers and following
-    (currentUser.following || []).forEach(id => contactIds.add(id));
-    (currentUser.followers || []).forEach(id => contactIds.add(id));
-    
-    contactIds.delete(currentUser.id);
+    // Members/agents can contact active members and admins.
+    const q = query(usersCollection, where('role', 'in', ['member', 'admin']));
+    const snapshot = await getDocs(q);
 
-    const idsToFetch = Array.from(contactIds);
-
-    // Fetch all admins to ensure they are always contactable
-    const adminsQuery = query(usersCollection, where("role", "==", "admin"));
-    const adminsSnap = await getDocs(adminsQuery);
-    const adminUsers = adminsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-
-    // Use a secure, chunked 'in' query to fetch profiles by ID.
-    const allContacts: User[] = [...adminUsers];
-    const CHUNK_SIZE = 30; 
-    for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
-        const chunk = idsToFetch.slice(i, i + CHUNK_SIZE);
-        if (chunk.length > 0) {
-            const contactsQuery = query(usersCollection, where(documentId(), 'in', chunk));
-            const contactsSnap = await getDocs(contactsQuery);
-            contactsSnap.forEach(doc => {
-                const userData = doc.data() as User;
-                if (userData.status === 'active') {
-                     allContacts.push({ id: doc.id, ...userData });
-                }
-            });
-        }
-    }
+    const users = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as User))
+        .filter(user => user.status === 'active' && user.id !== currentUser.id);
     
-    // Deduplicate and filter out self
-    const uniqueUsers = Array.from(new Map(allContacts.map(item => [item.id, item])).values());
-    return uniqueUsers
-      .filter(user => user.id !== currentUser.id)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return users;
   },
   
   listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
@@ -828,13 +837,20 @@ export const api = {
   },
   
   startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
-      const q = query(conversationsCollection, where('members', 'array-contains', userId1), where('isGroup', '==', false));
+      const q = query(conversationsCollection, where('members', 'array-contains', userId1));
       const snapshot = await getDocs(q);
+
       const existingConvo = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Conversation))
-        .find(convo => convo.members.includes(userId2) && convo.members.length === 2);
+        .find(convo => 
+            !convo.isGroup && 
+            convo.members.includes(userId2) && 
+            convo.members.length === 2
+        );
 
-      if (existingConvo) return existingConvo;
+      if (existingConvo) {
+          return existingConvo;
+      }
 
       const members = [userId1, userId2].sort();
       const convoId = members.join('_');
@@ -850,6 +866,18 @@ export const api = {
           readBy: []
       };
       await setDoc(convoRef, newConvoData);
+
+      const notification: Omit<Notification, 'id'> = {
+        userId: userId2,
+        type: 'NEW_CHAT',
+        message: `${userName1} started a conversation with you.`,
+        link: convoId,
+        causerId: userId1,
+        causerName: userName1,
+        timestamp: newConvoData.lastMessageTimestamp,
+        read: false,
+      };
+      await addDoc(notificationsCollection, notification);
 
       return { id: convoId, ...newConvoData };
   },
@@ -886,8 +914,13 @@ export const api = {
 
   // Notifications
   listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void): () => void => {
-      const q = query(notificationsCollection, where('userId', '==', userId), orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification))));
+      // Robust query: Query by userId only and sort on the client to avoid composite index.
+      const q = query(notificationsCollection, where('userId', '==', userId), limit(50));
+      return onSnapshot(q, (snapshot) => {
+        const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+        notifications.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
+        callback(notifications);
+      });
   },
 
   listenForActivity: (callback: (activities: Activity[]) => void): () => void => {
@@ -901,12 +934,17 @@ export const api = {
   },
   
   markAllNotificationsAsRead: async (userId: string): Promise<void> => {
-    const q = query(notificationsCollection, where('userId', '==', userId), where('read', '==', false));
+    // Robust query: Fetch all for user and filter for 'read: false' on the client.
+    const q = query(notificationsCollection, where('userId', '==', userId));
     const snapshot = await getDocs(q);
     if (snapshot.empty) return;
 
     const batch = writeBatch(db);
-    snapshot.docs.forEach(doc => batch.update(doc.ref, { read: true }));
+    snapshot.docs.forEach(doc => {
+        if(doc.data().read === false) {
+            batch.update(doc.ref, { read: true });
+        }
+    });
     await batch.commit();
   },
 };
