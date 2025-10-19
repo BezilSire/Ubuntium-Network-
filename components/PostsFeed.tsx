@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Post, User, Activity, Comment } from '../types';
 import { api } from '../services/apiService';
@@ -147,11 +148,13 @@ export const PostItem: React.FC<{
     onViewProfile: (userId: string) => void;
     onRepost: (post: Post) => void;
     onShare: (post: Post) => void;
+    onFollowToggle: (targetUserId: string, targetUserName: string) => void;
     isAdminView?: boolean;
 }> = 
-({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, isAdminView }) => {
+({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, onFollowToggle, isAdminView }) => {
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
+    const isFollowing = currentUser.following?.includes(post.authorId);
     const isDistressPost = post.type === 'distress';
     const [showComments, setShowComments] = useState(false);
   
@@ -211,14 +214,27 @@ export const PostItem: React.FC<{
                     </button>
                  }
                 <div className="flex-1">
-                     <button 
-                        onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
-                        className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
-                        disabled={isDistressPost}
-                        aria-label={`View ${post.authorName}'s profile`}
-                    >
-                        {post.authorName}
-                    </button>
+                    <div className="flex items-center space-x-2">
+                        <button 
+                            onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
+                            className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
+                            disabled={isDistressPost}
+                            aria-label={`View ${post.authorName}'s profile`}
+                        >
+                            {post.authorName}
+                        </button>
+                         {!isOwnPost && !isDistressPost && (
+                            <>
+                                <span className="text-gray-500 text-xs">&bull;</span>
+                                <button
+                                    onClick={() => onFollowToggle(post.authorId, post.authorName)}
+                                    className={`text-xs font-semibold transition-colors ${isFollowing ? 'text-gray-400' : 'text-green-400 hover:text-green-300'}`}
+                                >
+                                    {isFollowing ? 'Following' : 'Follow'}
+                                </button>
+                            </>
+                        )}
+                    </div>
                     <p className="text-xs text-gray-500">{post.authorCircle} &bull; {formatTimeAgo(post.date)}</p>
                 </div>
                 <div className="ml-auto flex items-center space-x-3 text-gray-500">
@@ -467,6 +483,25 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
         console.error(error);
     }
   };
+  
+  const handleFollowToggle = async (targetUserId: string, targetUserName: string) => {
+    if (!user) return;
+    const isCurrentlyFollowing = user.following?.includes(targetUserId);
+
+    if (user.id === targetUserId) return;
+
+    try {
+      if (isCurrentlyFollowing) {
+        await api.unfollowUser(user.id, targetUserId);
+        addToast(`Unfollowed ${targetUserName}`, 'info');
+      } else {
+        await api.followUser(user.id, targetUserId);
+        addToast(`You are now following ${targetUserName}`, 'success');
+      }
+    } catch (error) {
+      addToast('Action failed. Please try again.', 'error');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -487,7 +522,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
                     isAdminView={isAdminView} 
                     onViewProfile={onViewProfile} 
                     onRepost={setPostToRepost} 
-                    onShare={handleShare} 
+                    onShare={handleShare}
+                    onFollowToggle={handleFollowToggle}
                 />
             ) : (
                 <ActivityItem 

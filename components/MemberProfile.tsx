@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect } from 'react';
 import { Member, User } from '../types';
 import { api } from '../services/apiService';
@@ -8,7 +10,7 @@ import { PostsFeed } from './PostsFeed';
 
 interface MemberProfileProps {
   memberId: string;
-  currentUserId: string; // The UID of the logged-in user
+  currentUser: User;
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   onViewProfile: (userId: string) => void;
 }
@@ -26,7 +28,7 @@ const Pill: React.FC<{text: string}> = ({ text }) => (
     </span>
 );
 
-export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentUserId, onUpdateUser, onViewProfile }) => {
+export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentUser, onUpdateUser, onViewProfile }) => {
     const [member, setMember] = useState<Member | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -77,7 +79,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
         fetchMember();
     }, [memberId, addToast]);
 
-    const isOwnProfile = member?.uid === currentUserId;
+    const isOwnProfile = member?.uid === currentUser.id;
 
     const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         setEditData({ ...editData, [e.target.name]: e.target.value });
@@ -288,7 +290,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                     {activeTab === 'profile' && (isEditing ? renderProfileEdit() : renderProfileView())}
                     {activeTab === 'posts' && member.uid && (
                         <PostsFeed 
-                            user={{id: currentUserId} as User}
+                            user={currentUser}
                             authorId={member.uid}
                             onViewProfile={onViewProfile}
                         />

@@ -4,7 +4,7 @@ import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
-import { PostItem } from './PostsFeed'; // Re-using PostItem from PostsFeed
+import { PostsFeed } from './PostsFeed';
 import { IdCardIcon } from './icons/IdCardIcon';
 import { InfoIcon } from './icons/InfoIcon';
 import { MemberCard } from './MemberCard';
@@ -39,7 +39,6 @@ const Pill: React.FC<{text: string}> = ({ text }) => (
 export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUser, onBack, onStartChat, onViewProfile }) => {
     const [user, setUser] = useState<User | null>(null);
     const [memberDetails, setMemberDetails] = useState<Member | null>(null);
-    const [posts, setPosts] = useState<Post[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showCard, setShowCard] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
@@ -57,10 +56,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
             setIsLoading(true);
             setShowCard(false); // Reset card view on profile change
             try {
-                const [userData, postsData] = await Promise.all([
-                    api.getUserProfile(userId),
-                    api.getPostsByAuthor(userId)
-                ]);
+                const userData = await api.getUserProfile(userId);
 
                 if (userData) {
                     setUser(userData);
@@ -73,8 +69,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                 } else {
                     addToast("Could not find user profile.", "error");
                 }
-                
-                setPosts(postsData);
             } catch (error) {
                 addToast("Failed to load profile data.", "error");
                 console.error("Profile load error:", error);
@@ -91,14 +85,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
           setUser(null);
         }
     }, [userId, addToast]);
-
-    const handleUpvote = async (postId: string) => {
-        try {
-            await api.upvotePost(postId, currentUser.id);
-        } catch (error) {
-            addToast("Could not process upvote.", "error");
-        }
-    };
     
     const handleFollowToggle = async () => {
         if (!user) return;
@@ -128,10 +114,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
         } catch (error) {
             addToast("Failed to submit report.", "error");
         }
-    };
-
-    const handlePlaceholder = () => {
-        addToast("This action can only be performed from your own feed.", "info");
     };
 
     if (isLoading) {
@@ -300,28 +282,11 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
             {!showCard && (
             <div className="mt-8">
                 <h3 className="text-xl font-semibold text-white mb-4">Posts by {user.name}</h3>
-                {posts.length > 0 ? (
-                    <div className="space-y-4">
-                        {posts.map(post => (
-                           <PostItem 
-                                key={post.id} 
-                                post={post} 
-                                currentUser={currentUser} 
-                                onUpvote={handleUpvote}
-                                onDelete={handlePlaceholder}
-                                onEdit={handlePlaceholder}
-                                onReport={handlePlaceholder}
-                                onViewProfile={onViewProfile}
-                                onRepost={handlePlaceholder}
-                                onShare={handlePlaceholder}
-                           />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-8 bg-slate-800 rounded-lg">
-                        <p className="text-gray-400">{user.name} hasn't made any posts yet.</p>
-                    </div>
-                )}
+                <PostsFeed 
+                    user={currentUser}
+                    authorId={user.id}
+                    onViewProfile={onViewProfile}
+                />
             </div>
             )}
         </div>

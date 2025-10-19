@@ -162,7 +162,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         case 'notifications':
             return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile}/>;
         case 'profile':
-            return <MemberProfile memberId={user.member_id} currentUserId={user.id} onUpdateUser={onUpdateUser} onViewProfile={onViewProfile} />;
+            return <MemberProfile memberId={user.member_id} currentUser={user} onUpdateUser={onUpdateUser} onViewProfile={onViewProfile} />;
         default:
             return null;
     }

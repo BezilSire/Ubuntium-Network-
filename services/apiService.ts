@@ -1,5 +1,4 @@
 
-
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -33,7 +32,7 @@ import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp
 import { auth, db, rtdb } from './firebase';
 import { 
     User, Agent, Member, NewMember, Broadcast, Post, NewPublicMemberData, MemberUser, 
-    Conversation, Message, Report, Notification, Activity, Comment, UserReport
+    Conversation, Message, Report, UserReport, Notification, Activity, Comment
 } from '../types';
 import { generateAgentCode } from '../utils';
 import { generateWelcomeMessage } from './geminiService';
@@ -87,6 +86,8 @@ export const api = {
       agent_code: generateAgentCode(),
       status: 'active',
       credibility_score: 100,
+      following: [],
+      followers: [],
     };
     await setDoc(doc(usersCollection, user.uid), newAgent);
     return newAgent;
@@ -127,13 +128,13 @@ export const api = {
             phone: memberData.phone,
             address: memberData.address,
             id_card_number: memberData.national_id,
+            following: [],
+            followers: [],
         };
         await setDoc(doc(usersCollection, permanentUser.uid), newUserProfile);
         return newUserProfile;
     } catch (dbError) {
         console.error("DB write failed after user creation:", dbError);
-        // This error is critical. If the DB write fails, the user has an auth account
-        // but no profile, effectively locking them out.
         throw new Error("Account created, but failed to save profile. Please contact support.");
     }
   },
@@ -152,7 +153,7 @@ export const api = {
   },
 
   // User/Profile Management
-  getUserProfile, // Expose the function
+  getUserProfile, 
 
   getSearchableUsers: async (): Promise<User[]> => {
       const q = query(usersCollection, where("status", "==", "active"));
@@ -223,12 +224,10 @@ export const api = {
 
   // Agent actions
   registerMember: async (agent: Agent, memberData: NewMember): Promise<Member> => {
-    // Default welcome message in case the AI service is unavailable (e.g., offline).
     let welcome_message = `Welcome to the Ubuntium Global Commons, ${memberData.full_name}! We are thrilled to have you join the ${agent.circle} Circle. I am because we are.`;
     let needs_welcome_update = false;
 
     try {
-      // This will fail gracefully if offline, and the default message will be used.
       welcome_message = await generateWelcomeMessage(memberData.full_name, agent.circle);
     } catch (error) {
       console.warn("Could not generate welcome message (likely offline). Using default and flagging for update.", error);
@@ -243,10 +242,9 @@ export const api = {
       membership_card_id: `UGC-M-${Date.now()}`,
       welcome_message,
       uid: null,
-      ...(needs_welcome_update && { needs_welcome_update: true }) // Conditionally add the flag
+      ...(needs_welcome_update && { needs_welcome_update: true })
     };
 
-    // This operation is automatically queued by Firestore's offline persistence.
     const docRef = await addDoc(membersCollection, newMember);
     return { ...newMember, id: docRef.id };
   },
@@ -275,8 +273,10 @@ export const api = {
   },
   
   updateUserRole: async (uid: string, newRole: User['role']): Promise<void> => {
-      const userDocRef = doc(db, 'users', uid);
-      await updateDoc(userDocRef, { role: newRole });
+    // This is an admin action and assumes Firestore rules allow it.
+    // Ideally, this would be a Cloud Function call for better security.
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, { role: newRole });
   },
 
   listenForAllMembers: (callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
@@ -303,7 +303,6 @@ export const api = {
       return onSnapshot(q, 
         (snapshot) => {
             const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
-            // Sort client-side to avoid needing a composite index
             members.sort((a, b) => new Date(a.date_registered).getTime() - new Date(b.date_registered).getTime());
             callback(members);
         },
@@ -343,35 +342,20 @@ export const api = {
 
       const userRef = doc(db, 'users', member.uid);
       batch.update(userRef, { status: 'active', distress_calls_available: 2 });
-
+      
+      // NOTE: The `onMemberApproved` Cloud Function will handle creating the activity feed item.
       await batch.commit();
-
-      // Create a global activity feed item for the new member
-      const activity: Omit<Activity, 'id'> = {
-          type: 'NEW_MEMBER',
-          message: `${member.full_name} from ${member.circle} has joined the commons!`,
-          link: member.uid, // Link to their user profile
-          causerId: member.uid,
-          causerName: member.full_name,
-          causerCircle: member.circle,
-          timestamp: Timestamp.now(),
-      };
-      await addDoc(activityFeedCollection, activity);
   },
 
   rejectMember: async (member: Member): Promise<void> => {
       const batch = writeBatch(db);
-
-      // 1. Update the member's status to 'rejected'
       const memberRef = doc(db, 'members', member.id);
       batch.update(memberRef, { payment_status: 'rejected' });
-
-      // 2. If a user account exists, mark it as 'ousted'
+      
       if (member.uid) {
           const userRef = doc(db, 'users', member.uid);
           batch.update(userRef, { status: 'ousted' });
       }
-
       await batch.commit();
   },
 
@@ -396,11 +380,13 @@ export const api = {
   },
   
   resetDistressQuota: async (uid: string): Promise<void> => {
+      // NOTE: This is a cross-user write. Assumes admin privileges are handled by Firestore rules.
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, { distress_calls_available: 2 });
   },
   
   clearLastDistressPost: async (uid: string): Promise<void> => {
+      // NOTE: This is a cross-user write. Assumes admin privileges are handled by Firestore rules.
       const userRef = doc(db, 'users', uid);
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data() as MemberUser;
@@ -412,38 +398,24 @@ export const api = {
   },
 
   processPendingWelcomeMessages: async (): Promise<number> => {
-    // Find members that were registered offline and need a welcome message.
-    const q = query(membersCollection, where("needs_welcome_update", "==", true), limit(10)); // Limit to 10 to avoid excessive API calls at once.
+    const q = query(membersCollection, where("needs_welcome_update", "==", true), limit(10));
     const snapshot = await getDocs(q);
-
-    if (snapshot.empty) {
-        return 0;
-    }
+    if (snapshot.empty) return 0;
 
     const batch = writeBatch(db);
     let updateCount = 0;
-
     for (const memberDoc of snapshot.docs) {
         const member = { id: memberDoc.id, ...memberDoc.data() } as Member;
         try {
-            // Try to generate the message now that we're likely online.
             const welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
             const memberRef = doc(db, 'members', member.id);
-            batch.update(memberRef, {
-                welcome_message,
-                needs_welcome_update: false
-            });
+            batch.update(memberRef, { welcome_message, needs_welcome_update: false });
             updateCount++;
         } catch (error) {
             console.error(`Failed to generate welcome message for synced member ${member.id}. Will retry later.`, error);
-            // We leave the flag as true so it can be retried on the next online sync.
         }
     }
-
-    if (updateCount > 0) {
-        await batch.commit();
-    }
-
+    if (updateCount > 0) await batch.commit();
     return updateCount;
   },
 
@@ -457,94 +429,35 @@ export const api = {
       return null;
   },
   
-  getMembersInCircle: async (circle: string): Promise<User[]> => {
-      const q = query(
-        usersCollection,
-        where("circle", "==", circle),
-        where("role", "==", "member"),
-        where("status", "==", "active"),
-        limit(50)
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-  },
-  
-  listenForNewMembersInCircle: (circle: string, callback: (users: User[]) => void): () => void => {
-    const q = query(
-        usersCollection, 
-        where("circle", "==", circle),
-        where("role", "==", "member"),
-        where("status", "==", "active"),
-        limit(10)
-    );
-    return onSnapshot(q, (snapshot) => {
-        const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-        callback(users);
-    });
-  },
-
   createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
-      const newPost: Omit<Post, 'id'> = {
+      // NOTE: Activity feed creation is handled by the `onPostCreated` Cloud Function.
+      const newPostData: Omit<Post, 'id'> = {
           authorId: author.id,
           authorName: author.name,
           authorCircle: author.circle || 'Unknown',
           content,
           date: new Date().toISOString(),
           upvotes: [],
-          replies: [],
-          type,
-          repostCount: 0,
           commentCount: 0,
+          repostCount: 0,
+          type,
       };
-      const postRef = await addDoc(postsCollection, newPost);
-
-      // Create a global activity item for relevant post types
-      let activityType: Activity['type'] | null = null;
-      switch (type) {
-        case 'proposal':
-            activityType = 'NEW_POST_PROPOSAL';
-            break;
-        case 'opportunity':
-            activityType = 'NEW_POST_OPPORTUNITY';
-            break;
-        case 'offer':
-            activityType = 'NEW_POST_OFFER';
-            break;
-        case 'general':
-            activityType = 'NEW_POST_GENERAL';
-            break;
-        // 'distress' posts do not create public activity
-      }
-
-      if (activityType) {
-          const activity: Omit<Activity, 'id'> = {
-              type: activityType,
-              message: `${author.name} created a new ${type} post.`,
-              link: postRef.id,
-              causerId: author.id,
-              causerName: author.name,
-              causerCircle: author.circle || 'Unknown',
-              timestamp: Timestamp.now(),
-          };
-          await addDoc(activityFeedCollection, activity);
-      }
-      return { ...newPost, id: postRef.id };
+      const postRef = await addDoc(postsCollection, newPostData);
+      return { ...newPostData, id: postRef.id };
   },
 
   repostPost: async (originalPost: Post, author: User, comment: string): Promise<void> => {
     const batch = writeBatch(db);
-
-    // 1. Create the new repost
-    const newPost: Omit<Post, 'id'> = {
+    const newPostData: Omit<Post, 'id'> = {
         authorId: author.id,
         authorName: author.name,
         authorCircle: author.circle || 'Unknown',
         content: comment,
         date: new Date().toISOString(),
         upvotes: [],
-        replies: [],
-        type: 'general', // Reposts are their own type of content
         commentCount: 0,
+        repostCount: 0,
+        type: 'general',
         repostedFrom: {
             postId: originalPost.id,
             authorId: originalPost.authorId,
@@ -554,13 +467,10 @@ export const api = {
             date: originalPost.date,
         }
     };
-    const newPostRef = doc(collection(db, 'posts')); // Auto-generate ID
-    batch.set(newPostRef, newPost);
-
-    // 2. Increment repostCount on original post
+    const newPostRef = doc(collection(db, 'posts'));
+    batch.set(newPostRef, newPostData);
     const originalPostRef = doc(db, 'posts', originalPost.id);
     batch.update(originalPostRef, { repostCount: increment(1) });
-
     await batch.commit();
   },
 
@@ -576,33 +486,31 @@ export const api = {
           throw new Error("No distress calls available.");
       }
       
-      const newPost: Omit<Post, 'id'> = {
+      const newPostData: Omit<Post, 'id'> = {
           authorId: userData.id,
           authorName: "Anonymous Member",
           authorCircle: userData.circle || 'Unknown',
           content,
           date: new Date().toISOString(),
           upvotes: [],
-          replies: [],
-          type: 'distress',
           commentCount: 0,
-          repostCount: 0
+          repostCount: 0,
+          type: 'distress',
       };
-      const postRef = await addDoc(postsCollection, newPost);
+      const postRef = await addDoc(postsCollection, newPostData);
 
       await updateDoc(userRef, {
           distress_calls_available: userData.distress_calls_available - 1,
           last_distress_post_id: postRef.id
       });
       
-      return await getUserProfile(currentUser.uid) as User;
+      const updatedUser = await getUserProfile(currentUser.uid);
+      if (!updatedUser) throw new Error("Could not refetch user profile.");
+      return updatedUser;
   },
 
   listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
     let q;
-    // FIX: The error was caused by type confusion between different apiService files. 
-    // This implementation is the correct and performant one.
-    // Additionally, 'distress' posts are now filtered from the 'all' feed for safety.
     if (filter === 'all') {
         q = query(postsCollection, where('type', 'in', ['general', 'proposal', 'offer', 'opportunity']), orderBy('date', 'desc'), limit(50));
     } else {
@@ -625,38 +533,16 @@ export const api = {
     });
   },
 
-  getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
-    const q = query(postsCollection, where("authorId", "==", authorId), orderBy("date", "desc"));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-  },
-
   upvotePost: async (postId: string, userId: string): Promise<void> => {
+      // NOTE: Notification creation is handled by the `onPostLiked` Cloud Function.
       const postRef = doc(db, 'posts', postId);
       const postDoc = await getDoc(postRef);
       if (postDoc.exists()) {
           const post = postDoc.data() as Post;
-          const user = await getUserProfile(userId);
-          if (!user) return;
-
           if (post.upvotes.includes(userId)) {
               await updateDoc(postRef, { upvotes: arrayRemove(userId) });
           } else {
               await updateDoc(postRef, { upvotes: arrayUnion(userId) });
-              // Create a notification for the post author, if it's not the author themselves liking it
-              if (post.authorId !== userId) {
-                  const notification: Omit<Notification, 'id'> = {
-                      userId: post.authorId,
-                      type: 'POST_LIKE',
-                      message: `${user.name} liked your post.`,
-                      link: postId,
-                      causerId: userId,
-                      causerName: user.name,
-                      timestamp: Timestamp.now(),
-                      read: false,
-                  };
-                  await addDoc(notificationsCollection, notification);
-              }
           }
       }
   },
@@ -668,12 +554,9 @@ export const api = {
   
   deleteDistressPost: async (postId: string, authorId: string): Promise<void> => {
       const batch = writeBatch(db);
-
-      // 1. Delete the post
       const postRef = doc(db, 'posts', postId);
       batch.delete(postRef);
 
-      // 2. Check if this was the user's last distress post and clear it if so
       const userRef = doc(db, 'users', authorId);
       const userDoc = await getDoc(userRef);
       if (userDoc.exists()) {
@@ -682,7 +565,6 @@ export const api = {
               batch.update(userRef, { last_distress_post_id: null });
           }
       }
-      
       await batch.commit();
   },
 
@@ -702,31 +584,11 @@ export const api = {
   },
 
   addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
+    // NOTE: Notification creation is handled by the `onNewComment` Cloud Function.
     const postRef = doc(db, 'posts', postId);
     const commentsRef = collection(postRef, 'comments');
-    const timestamp = Timestamp.now();
-    
-    await addDoc(commentsRef, { ...commentData, timestamp });
+    await addDoc(commentsRef, { ...commentData, timestamp: Timestamp.now() });
     await updateDoc(postRef, { commentCount: increment(1) });
-    
-    const postDoc = await getDoc(postRef);
-    if (postDoc.exists()) {
-        const post = postDoc.data() as Post;
-        if (post.authorId !== commentData.authorId) {
-            const commentSnippet = commentData.content.length > 50 ? `${commentData.content.substring(0, 47)}...` : commentData.content;
-            const notification: Omit<Notification, 'id'> = {
-                userId: post.authorId,
-                type: 'POST_COMMENT',
-                message: `${commentData.authorName} commented on your post: "${commentSnippet}"`,
-                link: postId,
-                causerId: commentData.authorId,
-                causerName: commentData.authorName,
-                timestamp,
-                read: false,
-            };
-            await addDoc(notificationsCollection, notification);
-        }
-    }
   },
 
   deleteComment: async (postId: string, commentId: string): Promise<void> => {
@@ -753,59 +615,28 @@ export const api = {
   listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void): () => void => {
     if (followingIds.length === 0) {
         callback([]);
-        return () => {}; // No-op unsubscribe
+        return () => {};
     }
-
-    // Firestore 'in' query supports up to 30 values. We'll take the first 30 for simplicity.
-    const queryIds = followingIds.slice(0, 30);
-    
+    const queryIds = followingIds.slice(0, 30); // Firestore 'in' query limit is 30
     const q = query(postsCollection, where('authorId', 'in', queryIds), orderBy('date', 'desc'), limit(50));
-    
     return onSnapshot(q, (snapshot) => {
         const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
         callback(posts);
-    }, (error) => {
-        console.error(`Firestore listener error for following posts:`, error);
-    });
+    }, (error) => console.error(`Firestore listener error for following posts:`, error));
   },
 
   followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-
+    // This now ONLY updates the current user's document.
+    // The Cloud Function `onFollowUser` will handle creating the notification
+    // and updating the target user's `followers` list.
     const currentUserRef = doc(db, 'users', currentUserId);
-    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
-
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
-
-    await batch.commit();
-    
-    const currentUserProfile = await getUserProfile(currentUserId);
-    if (currentUserProfile) {
-        const notification: Omit<Notification, 'id'> = {
-            userId: targetUserId,
-            type: 'NEW_FOLLOWER',
-            message: `${currentUserProfile.name} started following you.`,
-            link: currentUserId,
-            causerId: currentUserId,
-            causerName: currentUserProfile.name,
-            timestamp: Timestamp.now(),
-            read: false,
-        };
-        await addDoc(notificationsCollection, notification);
-    }
+    await updateDoc(currentUserRef, { following: arrayUnion(targetUserId) });
   },
 
   unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-
+    // Similar to followUser, this only touches the current user's document.
     const currentUserRef = doc(db, 'users', currentUserId);
-    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
-
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
-
-    await batch.commit();
+    await updateDoc(currentUserRef, { following: arrayRemove(targetUserId) });
   },
 
   reportUser: async (reporter: User, reportedUser: User, reason: string, details: string): Promise<void> => {
@@ -841,42 +672,21 @@ export const api = {
   listenForReports: (callback: (reports: Report[]) => void, onError: (error: Error) => void): () => void => {
     const q = query(reportsCollection, orderBy('date', 'desc'));
     return onSnapshot(q, 
-        snapshot => {
-            const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report));
-            callback(reports);
-        },
-        error => {
-            console.error("Firestore listener error (reports):", error);
-            onError(error);
-        }
+        snapshot => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report))),
+        error => onError(error)
     );
   },
 
   resolvePostReport: async (reportId: string, postId: string, authorId: string): Promise<void> => {
+    // NOTE: The penalty logic (`credibility_score`) is removed from the client.
+    // This should be handled by a secure Cloud Function triggered by the report status change.
     const batch = writeBatch(db);
-
-    // 1. Mark report as resolved
     const reportRef = doc(db, 'reports', reportId);
     batch.update(reportRef, { status: 'resolved' });
-
-    // 2. Delete the post
     const postRef = doc(db, 'posts', postId);
     batch.delete(postRef);
-
-    // 3. Penalize the user
-    const userRef = doc(db, 'users', authorId);
-    batch.update(userRef, { credibility_score: increment(-25) });
-
+    
     await batch.commit();
-
-    // 4. Check if user should be ousted
-    const updatedUserDoc = await getDoc(userRef);
-    if (updatedUserDoc.exists()) {
-        const userData = updatedUserDoc.data() as User;
-        if ((userData.credibility_score || 0) <= 0) {
-            await updateDoc(userRef, { status: 'ousted' });
-        }
-    }
   },
   
   dismissReport: async (reportId: string): Promise<void> => {
@@ -886,26 +696,18 @@ export const api = {
 
   // Chat
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
-    // Admins can contact anyone for 1-on-1 or group chats.
     if (currentUser.role === 'admin') {
       const snapshot = await getDocs(usersCollection);
-      return snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as User))
-        .filter(user => user.id !== currentUser.id);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(user => user.id !== currentUser.id);
     }
     
-    // Members and Agents
     if (currentUser.role === 'member' || currentUser.role === 'agent') {
-      // For groups, allow adding any active user (members, agents, admins).
       if (forGroup) {
         const q = query(usersCollection, where('status', '==', 'active'));
         const snapshot = await getDocs(q);
-        return snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as User))
-          .filter(user => user.id !== currentUser.id);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(user => user.id !== currentUser.id);
       }
       
-      // For 1-on-1 chats, they can contact active members and admins.
       const membersQuery = query(usersCollection, where('role', '==', 'member'), where('status', '==', 'active'));
       const adminsQuery = query(usersCollection, where('role', '==', 'admin'));
       
@@ -914,49 +716,29 @@ export const api = {
       const members = membersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
       const admins = adminsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
       
-      const combined = [...members, ...admins];
-      // Deduplicate and filter out self.
-      const uniqueUsers = Array.from(new Map(combined.map(item => [item.id, item])).values());
+      const uniqueUsers = Array.from(new Map([...members, ...admins].map(item => [item.id, item])).values());
       return uniqueUsers.filter(user => user.id !== currentUser.id);
     }
-    
-    // Default empty for any other case (e.g., pending members).
     return [];
   },
   
-  listenForConversations: (
-    userId: string, 
-    callback: (convos: Conversation[]) => void,
-    onError: (error: Error) => void
-  ): () => void => {
+  listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
       const q = query(conversationsCollection, where('members', 'array-contains', userId));
-      return onSnapshot(q, 
-        (snapshot) => {
-            const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-            convos.sort((a, b) => {
-                const timeA = a.lastMessageTimestamp?.toDate().getTime() || 0;
-                const timeB = b.lastMessageTimestamp?.toDate().getTime() || 0;
-                return timeB - timeA;
-            });
-            callback(convos);
-        },
-        (error) => {
-            console.error("Firestore listener error (conversations):", error);
-            onError(error);
-        }
-      );
+      return onSnapshot(q, (snapshot) => {
+        const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
+        convos.sort((a, b) => (b.lastMessageTimestamp?.toMillis() || 0) - (a.lastMessageTimestamp?.toMillis() || 0));
+        callback(convos);
+      }, (error) => onError(error));
   },
 
   listenForMessages: (convoId: string, callback: (msgs: Message[]) => void): () => void => {
       const messagesRef = collection(db, 'conversations', convoId, 'messages');
       const q = query(messagesRef, orderBy('timestamp', 'asc'));
-      return onSnapshot(q, (snapshot) => {
-          const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-          callback(messages);
-      });
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message))));
   },
 
   sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>, conversation: Conversation): Promise<void> => {
+      // NOTE: Notification creation is handled by the `onNewMessage` Cloud Function.
       const messagesRef = collection(db, 'conversations', convoId, 'messages');
       const timestamp = Timestamp.now();
       await addDoc(messagesRef, { ...message, timestamp });
@@ -968,55 +750,20 @@ export const api = {
           lastMessageTimestamp: timestamp,
           readBy: [message.senderId]
       });
-
-      // Create notifications for other members in the chat
-      const recipients = conversation.members.filter(id => id !== message.senderId);
-      for (const recipientId of recipients) {
-          const messageSnippet = message.text.length > 50 ? `${message.text.substring(0, 47)}...` : message.text;
-          const notificationMessage = conversation.isGroup 
-            ? `${message.senderName} in ${conversation.name}: "${messageSnippet}"`
-            : `${message.senderName}: "${messageSnippet}"`;
-
-          const notification: Omit<Notification, 'id'> = {
-              userId: recipientId,
-              type: 'NEW_MESSAGE',
-              message: notificationMessage,
-              link: convoId,
-              causerId: message.senderId,
-              causerName: message.senderName,
-              timestamp,
-              read: false,
-          };
-          await addDoc(notificationsCollection, notification);
-      }
   },
   
   startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
-      // First, query for existing conversation to avoid permission errors on getDoc for non-existent doc
-      const q = query(
-          conversationsCollection,
-          where('members', 'array-contains', userId1),
-          where('isGroup', '==', false)
-      );
-
+      // NOTE: Notification creation is handled by the `onNewChat` Cloud Function.
+      const q = query(conversationsCollection, where('members', 'array-contains', userId1), where('isGroup', '==', false));
       const snapshot = await getDocs(q);
-      let existingConvo: Conversation | null = null;
-      
-      snapshot.forEach(doc => {
-          const convo = { id: doc.id, ...doc.data() } as Conversation;
-          // Since it's not a group chat, it must have 2 members.
-          if (convo.members.includes(userId2) && convo.members.length === 2) {
-              existingConvo = convo;
-          }
-      });
+      const existingConvo = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Conversation))
+        .find(convo => convo.members.includes(userId2) && convo.members.length === 2);
 
-      if (existingConvo) {
-          return existingConvo;
-      }
+      if (existingConvo) return existingConvo;
 
-      // If not found, create a new one
       const members = [userId1, userId2].sort();
-      const convoId = members.join('_'); // Use deterministic ID for creation
+      const convoId = members.join('_');
       const convoRef = doc(db, 'conversations', convoId);
       
       const newConvoData: Omit<Conversation, 'id'> = {
@@ -1029,19 +776,6 @@ export const api = {
           readBy: []
       };
       await setDoc(convoRef, newConvoData);
-
-      // Create a notification for the person being contacted
-      const notification: Omit<Notification, 'id'> = {
-        userId: userId2,
-        type: 'NEW_CHAT',
-        message: `${userName1} started a conversation with you.`,
-        link: convoId,
-        causerId: userId1,
-        causerName: userName1,
-        timestamp: newConvoData.lastMessageTimestamp,
-        read: false,
-      };
-      await addDoc(notificationsCollection, notification);
 
       return { id: convoId, ...newConvoData };
   },
@@ -1079,18 +813,12 @@ export const api = {
   // Notifications
   listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void): () => void => {
       const q = query(notificationsCollection, where('userId', '==', userId), orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, (snapshot) => {
-          const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-          callback(notifications);
-      });
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification))));
   },
 
   listenForActivity: (callback: (activities: Activity[]) => void): () => void => {
       const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, (snapshot) => {
-          const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
-          callback(activities);
-      });
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))));
   },
   
   markNotificationAsRead: (notificationId: string): Promise<void> => {
@@ -1104,9 +832,7 @@ export const api = {
     if (snapshot.empty) return;
 
     const batch = writeBatch(db);
-    snapshot.docs.forEach(doc => {
-        batch.update(doc.ref, { read: true });
-    });
+    snapshot.docs.forEach(doc => batch.update(doc.ref, { read: true }));
     await batch.commit();
   },
 };
