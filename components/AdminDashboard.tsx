@@ -47,9 +47,11 @@ interface AdminDashboardProps {
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   unreadCount: number;
   onViewProfile: (userId: string | null) => void;
+  initialChat: { target: Conversation; role: User['role'] } | null;
+  onInitialChatConsumed: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser, unreadCount, onViewProfile }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts, onSendBroadcast, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
   const [view, setView] = useState<AdminView>('dashboard');
   const [userView, setUserView] = useState<UserSubView>('agents');
   
@@ -76,6 +78,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [dialogState, setDialogState] = useState<{ isOpen: boolean; member: Member | null; action: 'reset' | 'clear' }>({ isOpen: false, member: null, action: 'reset' });
   const [roleChangeDialog, setRoleChangeDialog] = useState<{ isOpen: boolean; user: User | null; newRole: User['role'] | null }>({ isOpen: false, user: null, newRole: null });
   const [verificationModalState, setVerificationModalState] = useState<{ isOpen: boolean, member: Member | null }>({ isOpen: false, member: null });
+
+  useEffect(() => {
+    if (initialChat && initialChat.role === user.role) {
+        setChatTarget(initialChat.target);
+        setView('connect');
+        onInitialChatConsumed();
+    }
+  }, [initialChat, user.role, onInitialChatConsumed]);
 
   useEffect(() => {
     const errors = new Set<string>();

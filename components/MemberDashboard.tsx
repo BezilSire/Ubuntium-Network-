@@ -13,6 +13,7 @@ import { SirenIcon } from './icons/SirenIcon';
 import { PlusCircleIcon } from './icons/PlusCircleIcon';
 import { GlobeIcon } from './icons/GlobeIcon';
 import { UsersIcon } from './icons/UsersIcon';
+import { CommunityPage } from './CommunityPage';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -20,10 +21,12 @@ interface MemberDashboardProps {
   onUpdateUser: (updatedUser: Partial<User>) => Promise<void>;
   unreadCount: number;
   onViewProfile: (userId: string | null) => void;
+  initialChat: { target: Conversation; role: User['role'] } | null;
+  onInitialChatConsumed: () => void;
 }
 
-export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile }) => {
-  const [activeView, setActiveView] = useState<'feed' | 'connect' | 'notifications' | 'profile'>('feed');
+export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
+  const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile'>('feed');
   const [feedFilter, setFeedFilter] = useState<'all' | 'following'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
@@ -34,6 +37,14 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
   
   const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  useEffect(() => {
+    if (initialChat && initialChat.role === user.role) {
+        setChatTarget(initialChat.target);
+        setActiveView('connect');
+        onInitialChatConsumed();
+    }
+  }, [initialChat, user.role, onInitialChatConsumed]);
 
   useEffect(() => {
     if (user.status === 'active') {
@@ -157,6 +168,8 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
                     <PostsFeed user={user} feedType={feedFilter} onViewProfile={onViewProfile} />
                 </>
             );
+        case 'community':
+            return <CommunityPage currentUser={user} onViewProfile={onViewProfile} />;
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
         case 'notifications':

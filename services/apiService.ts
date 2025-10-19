@@ -1,4 +1,3 @@
-
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -26,7 +25,8 @@ import {
   deleteDoc,
   writeBatch,
   increment,
-  serverTimestamp as firestoreServerTimestamp
+  serverTimestamp as firestoreServerTimestamp,
+  documentId
 } from 'firebase/firestore';
 import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { auth, db, rtdb } from './firebase';
@@ -156,9 +156,76 @@ export const api = {
   getUserProfile, 
 
   getSearchableUsers: async (): Promise<User[]> => {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return [];
+      const userProfile = await getUserProfile(currentUser.uid);
+      if (userProfile?.role !== 'admin') {
+          return []; // Non-admins cannot search all users
+      }
+      
       const q = query(usersCollection, where("status", "==", "active"));
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+  },
+  
+  getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
+    const q = query(
+        activityFeedCollection,
+        where("type", "==", "NEW_MEMBER"),
+        where("causerCircle", "==", circle),
+        orderBy("timestamp", "desc"),
+        limit(20) // Get more activities to account for duplicates
+    );
+    const activitySnap = await getDocs(q);
+    
+    // Get unique user IDs, excluding the current user
+    const userIds = activitySnap.docs
+        .map(doc => doc.data().causerId as string)
+        .filter(id => id !== currentUserId);
+    
+    const uniqueUserIds = [...new Set(userIds)].slice(0, 10);
+
+    if (uniqueUserIds.length === 0) {
+        return [];
+    }
+    
+    // Firestore 'in' queries can handle up to 30 items, so a single query is fine.
+    const usersQuery = query(usersCollection, where(documentId(), 'in', uniqueUserIds));
+    const usersSnap = await getDocs(usersQuery);
+    
+    const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+    
+    // The query result order isn't guaranteed, so we'll sort based on the original activity order.
+    return users.sort((a, b) => uniqueUserIds.indexOf(a.id) - uniqueUserIds.indexOf(b.id));
+  },
+
+  getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
+    const q = query(
+        postsCollection,
+        where("authorCircle", "==", circle),
+        where("type", "!=", "distress"),
+        orderBy("date", "desc"),
+        limit(50) // Look at the last 50 posts in the circle
+    );
+    const postsSnap = await getDocs(q);
+    
+    const authorIds = postsSnap.docs
+        .map(doc => doc.data().authorId as string)
+        .filter(id => id !== currentUserId);
+    
+    const uniqueAuthorIds = [...new Set(authorIds)].slice(0, 12); // Get up to 12 unique authors
+
+    if (uniqueAuthorIds.length === 0) {
+        return [];
+    }
+
+    const usersQuery = query(usersCollection, where(documentId(), 'in', uniqueAuthorIds));
+    const usersSnap = await getDocs(usersQuery);
+
+    const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+    
+    // Sort based on the order of appearance in the unique list
+    return users.sort((a, b) => uniqueAuthorIds.indexOf(a.id) - uniqueAuthorIds.indexOf(b.id));
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -273,8 +340,6 @@ export const api = {
   },
   
   updateUserRole: async (uid: string, newRole: User['role']): Promise<void> => {
-    // This is an admin action and assumes Firestore rules allow it.
-    // Ideally, this would be a Cloud Function call for better security.
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, { role: newRole });
   },
@@ -343,7 +408,6 @@ export const api = {
       const userRef = doc(db, 'users', member.uid);
       batch.update(userRef, { status: 'active', distress_calls_available: 2 });
       
-      // NOTE: The `onMemberApproved` Cloud Function will handle creating the activity feed item.
       await batch.commit();
   },
 
@@ -380,13 +444,11 @@ export const api = {
   },
   
   resetDistressQuota: async (uid: string): Promise<void> => {
-      // NOTE: This is a cross-user write. Assumes admin privileges are handled by Firestore rules.
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, { distress_calls_available: 2 });
   },
   
   clearLastDistressPost: async (uid: string): Promise<void> => {
-      // NOTE: This is a cross-user write. Assumes admin privileges are handled by Firestore rules.
       const userRef = doc(db, 'users', uid);
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data() as MemberUser;
@@ -430,7 +492,6 @@ export const api = {
   },
   
   createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
-      // NOTE: Activity feed creation is handled by the `onPostCreated` Cloud Function.
       const newPostData: Omit<Post, 'id'> = {
           authorId: author.id,
           authorName: author.name,
@@ -534,7 +595,6 @@ export const api = {
   },
 
   upvotePost: async (postId: string, userId: string): Promise<void> => {
-      // NOTE: Notification creation is handled by the `onPostLiked` Cloud Function.
       const postRef = doc(db, 'posts', postId);
       const postDoc = await getDoc(postRef);
       if (postDoc.exists()) {
@@ -584,7 +644,6 @@ export const api = {
   },
 
   addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
-    // NOTE: Notification creation is handled by the `onNewComment` Cloud Function.
     const postRef = doc(db, 'posts', postId);
     const commentsRef = collection(postRef, 'comments');
     await addDoc(commentsRef, { ...commentData, timestamp: Timestamp.now() });
@@ -626,15 +685,11 @@ export const api = {
   },
 
   followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    // This now ONLY updates the current user's document.
-    // The Cloud Function `onFollowUser` will handle creating the notification
-    // and updating the target user's `followers` list.
     const currentUserRef = doc(db, 'users', currentUserId);
     await updateDoc(currentUserRef, { following: arrayUnion(targetUserId) });
   },
 
   unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    // Similar to followUser, this only touches the current user's document.
     const currentUserRef = doc(db, 'users', currentUserId);
     await updateDoc(currentUserRef, { following: arrayRemove(targetUserId) });
   },
@@ -678,8 +733,6 @@ export const api = {
   },
 
   resolvePostReport: async (reportId: string, postId: string, authorId: string): Promise<void> => {
-    // NOTE: The penalty logic (`credibility_score`) is removed from the client.
-    // This should be handled by a secure Cloud Function triggered by the report status change.
     const batch = writeBatch(db);
     const reportRef = doc(db, 'reports', reportId);
     batch.update(reportRef, { status: 'resolved' });
@@ -696,30 +749,53 @@ export const api = {
 
   // Chat
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
+    // Admins can see everyone, which is fine as they have permissions.
     if (currentUser.role === 'admin') {
-      const snapshot = await getDocs(usersCollection);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(user => user.id !== currentUser.id);
+        const q = query(usersCollection, where("status", "==", "active"));
+        const snapshot = await getDocs(q);
+        return snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as User))
+            .filter(user => user.id !== currentUser.id);
     }
     
-    if (currentUser.role === 'member' || currentUser.role === 'agent') {
-      if (forGroup) {
-        const q = query(usersCollection, where('status', '==', 'active'));
-        const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)).filter(user => user.id !== currentUser.id);
-      }
-      
-      const membersQuery = query(usersCollection, where('role', '==', 'member'), where('status', '==', 'active'));
-      const adminsQuery = query(usersCollection, where('role', '==', 'admin'));
-      
-      const [membersSnap, adminsSnap] = await Promise.all([getDocs(membersQuery), getDocs(adminsQuery)]);
-      
-      const members = membersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      const admins = adminsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      
-      const uniqueUsers = Array.from(new Map([...members, ...admins].map(item => [item.id, item])).values());
-      return uniqueUsers.filter(user => user.id !== currentUser.id);
+    // For non-admins, securely fetch contacts based on their connections and admins.
+    const contactIds = new Set<string>();
+    
+    // Add followers and following
+    (currentUser.following || []).forEach(id => contactIds.add(id));
+    (currentUser.followers || []).forEach(id => contactIds.add(id));
+    
+    contactIds.delete(currentUser.id);
+
+    const idsToFetch = Array.from(contactIds);
+
+    // Fetch all admins to ensure they are always contactable
+    const adminsQuery = query(usersCollection, where("role", "==", "admin"));
+    const adminsSnap = await getDocs(adminsQuery);
+    const adminUsers = adminsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+
+    // Use a secure, chunked 'in' query to fetch profiles by ID.
+    const allContacts: User[] = [...adminUsers];
+    const CHUNK_SIZE = 30; 
+    for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
+        const chunk = idsToFetch.slice(i, i + CHUNK_SIZE);
+        if (chunk.length > 0) {
+            const contactsQuery = query(usersCollection, where(documentId(), 'in', chunk));
+            const contactsSnap = await getDocs(contactsQuery);
+            contactsSnap.forEach(doc => {
+                const userData = doc.data() as User;
+                if (userData.status === 'active') {
+                     allContacts.push({ id: doc.id, ...userData });
+                }
+            });
+        }
     }
-    return [];
+    
+    // Deduplicate and filter out self
+    const uniqueUsers = Array.from(new Map(allContacts.map(item => [item.id, item])).values());
+    return uniqueUsers
+      .filter(user => user.id !== currentUser.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
   
   listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
@@ -738,7 +814,6 @@ export const api = {
   },
 
   sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>, conversation: Conversation): Promise<void> => {
-      // NOTE: Notification creation is handled by the `onNewMessage` Cloud Function.
       const messagesRef = collection(db, 'conversations', convoId, 'messages');
       const timestamp = Timestamp.now();
       await addDoc(messagesRef, { ...message, timestamp });
@@ -753,7 +828,6 @@ export const api = {
   },
   
   startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
-      // NOTE: Notification creation is handled by the `onNewChat` Cloud Function.
       const q = query(conversationsCollection, where('members', 'array-contains', userId1), where('isGroup', '==', false));
       const snapshot = await getDocs(q);
       const existingConvo = snapshot.docs

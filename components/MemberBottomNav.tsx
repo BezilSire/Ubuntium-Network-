@@ -3,8 +3,9 @@ import { HomeIcon } from './icons/HomeIcon';
 import { MessageSquareIcon } from './icons/MessageSquareIcon';
 import { BellIcon } from './icons/BellIcon';
 import { UserIcon } from './icons/UserIcon';
+import { UsersIcon } from './icons/UsersIcon';
 
-type ActiveView = 'feed' | 'connect' | 'notifications' | 'profile';
+type ActiveView = 'feed' | 'community' | 'connect' | 'notifications' | 'profile';
 
 interface MemberBottomNavProps {
   activeView: ActiveView;
@@ -40,6 +41,12 @@ export const MemberBottomNav: React.FC<MemberBottomNavProps> = ({ activeView, se
             label="Feed"
             isActive={activeView === 'feed'}
             onClick={() => setActiveView('feed')}
+        />
+        <NavItem
+            icon={<UsersIcon />}
+            label="Community"
+            isActive={activeView === 'community'}
+            onClick={() => setActiveView('community')}
         />
         <NavItem
             icon={<MessageSquareIcon />}

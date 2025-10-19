@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { Member, User } from '../types';
 import { api } from '../services/apiService';
@@ -30,7 +28,8 @@ const Pill: React.FC<{text: string}> = ({ text }) => (
 
 export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentUser, onUpdateUser, onViewProfile }) => {
     const [member, setMember] = useState<Member | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isFetching, setIsFetching] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const { addToast } = useToast();
     const [activeTab, setActiveTab] = useState<'profile' | 'posts'>('profile');
@@ -51,7 +50,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
 
     useEffect(() => {
         const fetchMember = async () => {
-            setIsLoading(true);
+            setIsFetching(true);
             try {
                 const fetchedMember = await api.getMemberById(memberId);
                 setMember(fetchedMember);
@@ -73,7 +72,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
             } catch (error) {
                 addToast("Could not load member profile.", "error");
             } finally {
-                setIsLoading(false);
+                setIsFetching(false);
             }
         };
         fetchMember();
@@ -90,7 +89,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
             addToast("Could not save profile. User data is missing.", "error");
             return;
         }
-        setIsLoading(true);
+        setIsSaving(true);
         try {
             const memberUpdateData: Partial<Member> = {
                 full_name: editData.full_name,
@@ -123,11 +122,11 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
         } catch (error) {
             addToast("An error occurred while saving. Please try again.", "error");
         } finally {
-            setIsLoading(false);
+            setIsSaving(false);
         }
     };
 
-    if (isLoading && !member) {
+    if (isFetching) {
         return <div className="text-center p-10">Loading profile...</div>;
     }
 
@@ -195,7 +194,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
             </div>
             <div className="flex justify-end space-x-3 pt-4">
                 <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-600 text-white text-sm rounded-md hover:bg-slate-500">Cancel</button>
-                <button onClick={handleSave} disabled={isLoading} className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:bg-slate-500">{isLoading ? "Saving..." : "Save Changes"}</button>
+                <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:bg-slate-500">{isSaving ? "Saving..." : "Save Changes"}</button>
             </div>
         </div>
     );

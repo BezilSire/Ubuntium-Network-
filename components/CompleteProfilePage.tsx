@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User } from '../types';
 import { useToast } from '../contexts/ToastContext';
@@ -24,7 +23,7 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
     // Agent-specific
     id_card_number: user.id_card_number || '',
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { addToast } = useToast();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -34,7 +33,7 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSaving(true);
 
     const requiredFields = user.role === 'member'
       ? ['phone', 'address', 'bio', 'profession']
@@ -44,7 +43,7 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
 
     if (isMissingFields) {
       addToast('Please fill in all required fields to continue.', 'error');
-      setIsLoading(false);
+      setIsSaving(false);
       return;
     }
 
@@ -55,7 +54,7 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
       addToast('Failed to update profile. Please try again.', 'error');
     } finally {
       // This ensures the button is re-enabled even if navigation fails.
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -115,8 +114,8 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
                  )}
 
                 <div className="flex justify-end pt-4 border-t border-slate-700">
-                    <button type="submit" disabled={isLoading} className="inline-flex justify-center py-2 px-6 border border-transparent rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-500">
-                        {isLoading ? 'Saving...' : 'Save and Continue'}
+                    <button type="submit" disabled={isSaving} className="inline-flex justify-center py-2 px-6 border border-transparent rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-500">
+                        {isSaving ? 'Saving...' : 'Save and Continue'}
                     </button>
                 </div>
             </form>

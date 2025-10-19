@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Agent, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
@@ -19,7 +18,7 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
     address: agent.address || '',
     bio: agent.bio || '',
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -42,12 +41,12 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSaving(true);
     try {
       // Simple validation
       if (!formData.name.trim() || !formData.email.trim() || !formData.circle.trim()) {
         addToast('Name, email, and circle cannot be empty.', 'error');
-        setIsLoading(false);
+        setIsSaving(false);
         return;
       }
       await onUpdateUser({ 
@@ -62,7 +61,7 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
     } catch (error) {
       addToast('Failed to update profile. Please try again.', 'error');
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
   
@@ -183,10 +182,10 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
         <div className="flex justify-end pt-4">
           <button
             type="submit"
-            disabled={isLoading || !hasChanges}
+            disabled={isSaving || !hasChanges}
             className="inline-flex justify-center py-2 px-6 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 disabled:bg-slate-500 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </form>

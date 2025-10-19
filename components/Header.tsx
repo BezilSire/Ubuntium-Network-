@@ -4,7 +4,6 @@ import { LogoIcon } from './icons/LogoIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { WifiOffIcon } from './icons/WifiOffIcon';
-import { GlobalSearch } from './GlobalSearch';
 import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
@@ -37,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onLogout, onViewProfile })
           
           {user && (
             <div className="flex-1 flex justify-center px-4">
-               <GlobalSearch onProfileSelect={onViewProfile} currentUser={user} />
+               {/* GlobalSearch removed to prevent permission errors for non-admins */}
             </div>
           )}
 

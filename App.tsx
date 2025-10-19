@@ -1,11 +1,12 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { MemberDashboard } from './components/MemberDashboard';
 import { AuthPage } from './components/AuthPage';
 import { Header } from './components/Header';
-import { User, Agent, Broadcast, MemberUser, Admin } from './types';
+import { User, Agent, Broadcast, MemberUser, Admin, Conversation } from './types';
 import { useToast } from './contexts/ToastContext';
 import { ToastContainer } from './components/Toast';
 import { api } from './services/apiService';
@@ -35,6 +36,11 @@ const App: React.FC = () => {
 
   // Global state for viewing a user profile from anywhere (e.g., search)
   const [globalViewingProfileId, setGlobalViewingProfileId] = useState<string | null>(null);
+  
+  // State to trigger opening a chat from a global component like PublicProfile
+  const [initialChat, setInitialChat] = useState<{ target: Conversation, role: User['role']} | null>(null);
+  const onInitialChatConsumed = () => setInitialChat(null);
+
 
   // Hook to remind users to complete their profile
   useProfileCompletionReminder(currentUser);
@@ -92,6 +98,26 @@ const App: React.FC = () => {
     addToast('Profile complete! Welcome to the commons.', 'success');
   };
 
+  const handleStartChat = async (targetUserId: string) => {
+    if (!currentUser || currentUser.role === 'agent') {
+        addToast("Messaging is not available for agents.", "info");
+        return;
+    }
+    try {
+        const targetUser = await api.getUserProfile(targetUserId);
+        if (!targetUser) {
+            addToast("Could not find user to chat with.", "error");
+            return;
+        }
+        const newConvo = await api.startChat(currentUser.id, targetUserId, currentUser.name, targetUser.name);
+        setGlobalViewingProfileId(null); // Close profile view
+        setInitialChat({ target: newConvo, role: currentUser.role });
+    } catch (error) {
+        addToast("Failed to start chat.", "error");
+    }
+  };
+
+
   const renderContent = () => {
     if (isLoadingAuth) {
       return <div className="text-center p-10 text-gray-400">Loading...</div>;
@@ -116,10 +142,7 @@ const App: React.FC = () => {
                     userId={globalViewingProfileId}
                     currentUser={currentUser}
                     onBack={() => setGlobalViewingProfileId(null)}
-                    onStartChat={(targetUserId) => {
-                        // For simplicity, we'll implement this navigation later.
-                        addToast("Chat from profile view coming soon!", "info");
-                    }}
+                    onStartChat={handleStartChat}
                     onViewProfile={setGlobalViewingProfileId}
                 />
             </div>
@@ -138,6 +161,8 @@ const App: React.FC = () => {
                 onUpdateUser={updateUser}
                 unreadCount={unreadNotificationCount}
                 onViewProfile={setGlobalViewingProfileId}
+                initialChat={initialChat}
+                onInitialChatConsumed={onInitialChatConsumed}
             />
         </div>
       );
@@ -189,6 +214,8 @@ const App: React.FC = () => {
                 onUpdateUser={updateUser}
                 unreadCount={unreadNotificationCount}
                 onViewProfile={setGlobalViewingProfileId}
+                initialChat={initialChat}
+                onInitialChatConsumed={onInitialChatConsumed}
             />
         </div>
     );
