@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Admin, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import { api } from '../services/apiService';
@@ -21,6 +22,18 @@ export const AdminProfile: React.FC<AdminProfileProps> = ({ user, onUpdateUser }
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    // Sync form data if the user prop changes (e.g., after a save)
+    setFormData({
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+        id_card_number: user.id_card_number || '',
+        address: user.address || '',
+        bio: user.bio || '',
+    });
+  }, [user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;

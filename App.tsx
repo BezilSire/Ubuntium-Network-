@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -16,6 +17,7 @@ import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 import { PublicProfile } from './components/PublicProfile';
 import { CompleteProfilePage } from './components/CompleteProfilePage';
+import { VerifyEmailPage } from './components/VerifyEmailPage';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
@@ -24,7 +26,7 @@ const App: React.FC = () => {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const { addToast } = useToast();
   const isOnline = useOnlineStatus();
-  const [hasSyncedOnConnect, setHasSyncedOnConnect] = useState(true);
+  const [hasSyncedOnConnect, setHasSyncedOnConnect] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // State for Agent Dashboard UI
@@ -51,201 +53,152 @@ const App: React.FC = () => {
     if (currentUser) {
         fetchBroadcasts();
         const unsubNotifications = api.listenForNotifications(currentUser.id, (notifications) => {
-            const unread = notifications.filter(n => !n.read).length;
-            setUnreadNotificationCount(unread);
+            setUnreadNotificationCount(notifications.filter(n => !n.read).length);
         });
         return () => unsubNotifications();
-    } else {
-        setUnreadNotificationCount(0);
     }
   }, [currentUser, addToast]);
 
   useEffect(() => {
-    // This effect handles the automatic syncing of queued data when the application comes back online.
-    if (isOnline && !hasSyncedOnConnect && currentUser) {
-      // Only agents or admins, who can create members, need to trigger this sync.
-      if (currentUser.role === 'agent' || currentUser.role === 'admin') {
-        console.log("Connection restored. Checking for pending welcome messages to generate...");
-        
-        api.processPendingWelcomeMessages()
-          .then(count => {
-            if (count > 0) {
-              addToast(`Successfully generated ${count} welcome message(s) for members registered offline.`, 'info');
-            }
-          })
-          .catch(error => {
-            console.error("Error during automatic offline data sync:", error);
-            addToast("An error occurred while syncing some offline data.", "error");
-          });
-      }
-      // Mark that we've attempted a sync for this online session.
+    // When the user comes online, check if a sync is needed.
+    if (isOnline && !hasSyncedOnConnect) {
+      addToast("You're back online! Syncing data...", "info");
+      api.processPendingWelcomeMessages().then(count => {
+        if (count > 0) {
+          addToast(`Successfully generated ${count} welcome message(s) for newly synced members.`, 'success');
+        }
+      });
+      // Mark as synced to prevent re-syncing on every online event within the same session.
       setHasSyncedOnConnect(true);
     } else if (!isOnline) {
-      // When the app goes offline, reset the flag so that a sync will be attempted
-      // the next time it comes online.
-      if (hasSyncedOnConnect) {
-        setHasSyncedOnConnect(false);
-      }
+      // Reset the sync flag when the user goes offline.
+      setHasSyncedOnConnect(false);
     }
-  }, [isOnline, hasSyncedOnConnect, currentUser, addToast]);
-
-
-  const handleLogoutWithReset = async () => {
-    await logout();
-    setAgentView('dashboard'); // Reset local UI state on logout
-  };
+  }, [isOnline, hasSyncedOnConnect, addToast]);
 
   const handleSendBroadcast = async (message: string) => {
-    const newBroadcast = await api.sendBroadcast(message);
-    setBroadcasts(prev => [newBroadcast, ...prev]);
-    addToast('Broadcast sent successfully.', 'success');
+    try {
+        const newBroadcast = await api.sendBroadcast(message);
+        setBroadcasts(prev => [newBroadcast, ...prev]);
+        addToast('Broadcast sent successfully!', 'success');
+    } catch (error) {
+        addToast('Failed to send broadcast.', 'error');
+        throw error;
+    }
   };
-
-  const handleViewProfile = (userId: string | null) => {
-    setGlobalViewingProfileId(userId);
-  };
-
-
-  if (isLoadingAuth) {
-    return (
-        <div className="min-h-screen bg-gray-100 dark:bg-slate-900 flex items-center justify-center">
-            <p className="text-slate-700 dark:text-white text-lg">Loading Portal...</p>
-        </div>
-    );
-  }
   
-  const renderFullScreenPage = (content: React.ReactNode) => (
-    <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
-      <ToastContainer />
-      <Header user={currentUser} onLogout={handleLogoutWithReset} onViewProfile={handleViewProfile} />
-      <main className="p-4 sm:p-6 lg:p-8">
-          {content}
-      </main>
-    </div>
-  );
+  const handleProfileComplete = async (updatedData: Partial<User>) => {
+    await updateUser({ ...updatedData, isProfileComplete: true, isCompletingProfile: true });
+    addToast('Profile complete! Welcome to the commons.', 'success');
+  };
 
-  // Step 1: Check for mandatory profile completion
-  if (currentUser && !currentUser.isProfileComplete) {
-    return renderFullScreenPage(<CompleteProfilePage user={currentUser} onProfileComplete={async (data) => { await updateUser({ ...data, isCompletingProfile: true }) }} />);
-  }
+  const renderContent = () => {
+    if (isLoadingAuth) {
+      return <div className="text-center p-10 text-gray-400">Loading...</div>;
+    }
 
-
-  // Step 2: If a profile is being viewed globally, render it.
-  if (globalViewingProfileId && currentUser) {
-    return (
-      <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
-        <ToastContainer />
-        <Header 
-          user={currentUser} 
-          onLogout={handleLogoutWithReset}
-          onViewProfile={handleViewProfile}
-        />
-        <main className="p-4 sm:p-6 lg:p-8">
-            <PublicProfile 
-                userId={globalViewingProfileId}
-                currentUser={currentUser}
-                onBack={() => setGlobalViewingProfileId(null)}
-                onStartChat={async (targetUserId: string) => {
-                  try {
-                    const targetUser = await api.getUserProfile(targetUserId);
-                    if (!targetUser) {
-                      addToast("User not found.", "error");
-                      return;
-                    }
-                    await api.startChat(currentUser.id, targetUserId, currentUser.name, targetUser.name);
-                    setGlobalViewingProfileId(null);
-                    addToast("Please navigate to the 'Connect' tab to see your new chat.", 'info');
-                  } catch (e) {
-                    addToast("Could not start chat.", "error");
-                  }
-                }}
-                onViewProfile={handleViewProfile} // Allows navigating from profile to profile
-            />
-        </main>
-      </div>
-    );
-  }
-
-  const renderDashboard = () => {
     if (!currentUser) {
+      return <AuthPage />;
+    }
+
+    if (firebaseUser && !firebaseUser.emailVerified && currentUser.status !== 'pending') {
+        return <VerifyEmailPage user={currentUser} onLogout={logout} />;
+    }
+
+    if (!currentUser.isProfileComplete && currentUser.status !== 'pending') {
+        return <div className="p-4 sm:p-6 lg:p-8"><CompleteProfilePage user={currentUser} onProfileComplete={handleProfileComplete} /></div>;
+    }
+
+    if (globalViewingProfileId) {
         return (
-             <main className="p-4 sm:p-6 lg:p-8">
-                <AuthPage />
-            </main>
+            <div className="p-4 sm:p-6 lg:p-8">
+                <PublicProfile 
+                    userId={globalViewingProfileId}
+                    currentUser={currentUser}
+                    onBack={() => setGlobalViewingProfileId(null)}
+                    onStartChat={(targetUserId) => {
+                        // For simplicity, we'll implement this navigation later.
+                        addToast("Chat from profile view coming soon!", "info");
+                    }}
+                    onViewProfile={setGlobalViewingProfileId}
+                />
+            </div>
         );
     }
+    
+    const isDesktop = window.innerWidth >= 768; // md breakpoint
 
-    switch (currentUser.role) {
-        case 'admin':
-            return (
-                <main className="p-4 sm:p-6 lg:p-8">
-                    <AdminDashboard 
-                        user={currentUser as Admin} 
-                        broadcasts={broadcasts} 
-                        onSendBroadcast={handleSendBroadcast} 
-                        onUpdateUser={updateUser}
-                        unreadCount={unreadNotificationCount}
-                        onViewProfile={handleViewProfile}
-                    />
-                </main>
-            );
-        case 'member':
-            return (
-                 <main className="p-4 sm:p-6 lg:p-8">
-                    <MemberDashboard 
-                        user={currentUser as MemberUser} 
-                        broadcasts={broadcasts} 
-                        onUpdateUser={updateUser}
-                        unreadCount={unreadNotificationCount}
-                        onViewProfile={handleViewProfile}
-                    />
-                </main>
-            );
-        case 'agent':
-             return (
-                  <>
-                    <div className="hidden md:block">
-                      <Sidebar
-                        agent={currentUser as Agent}
-                        activeView={agentView}
-                        setActiveView={setAgentView}
-                        isCollapsed={isSidebarCollapsed}
-                        onToggle={() => setIsSidebarCollapsed(prev => !prev)}
-                        onLogout={handleLogoutWithReset}
-                        unreadCount={unreadNotificationCount}
-                      />
-                    </div>
-                    <main className={`pb-24 md:pb-0 md:transition-[margin-left] md:duration-300 md:ease-in-out ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
-                        <AgentDashboard 
-                          user={currentUser as Agent} 
-                          broadcasts={broadcasts} 
-                          onUpdateUser={updateUser}
-                          activeView={agentView}
-                          setActiveView={setAgentView}
-                          onViewProfile={handleViewProfile}
-                        />
-                    </main>
-                    <div className="md:hidden">
-                       <BottomNavBar
-                            agent={currentUser as Agent}
-                            activeView={agentView}
-                            setActiveView={setAgentView}
-                            onLogout={handleLogoutWithReset}
-                            unreadCount={unreadNotificationCount}
-                        />
-                    </div>
-                  </>
-             );
-        default:
-             return <p>Unknown user role.</p>;
+    if (currentUser.role === 'admin') {
+      return (
+        <div className="p-4 sm:p-6 lg:p-8">
+            <AdminDashboard 
+                user={currentUser as Admin} 
+                broadcasts={broadcasts} 
+                onSendBroadcast={handleSendBroadcast} 
+                onUpdateUser={updateUser}
+                unreadCount={unreadNotificationCount}
+                onViewProfile={setGlobalViewingProfileId}
+            />
+        </div>
+      );
     }
-  }
+
+    if (currentUser.role === 'agent') {
+      return (
+        <>
+            {isDesktop && (
+                <Sidebar 
+                    agent={currentUser as Agent}
+                    activeView={agentView}
+                    setActiveView={setAgentView}
+                    onLogout={logout}
+                    isCollapsed={isSidebarCollapsed}
+                    onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    unreadCount={unreadNotificationCount}
+                />
+            )}
+             <main className={`transition-all duration-300 ${isDesktop && !isSidebarCollapsed ? 'md:ml-64' : ''} ${isDesktop && isSidebarCollapsed ? 'md:ml-20' : ''} pb-24 md:pb-0`}>
+                <AgentDashboard 
+                    user={currentUser as Agent} 
+                    broadcasts={broadcasts} 
+                    onUpdateUser={updateUser} 
+                    activeView={agentView}
+                    setActiveView={setAgentView}
+                    onViewProfile={setGlobalViewingProfileId}
+                />
+            </main>
+            {!isDesktop && (
+                <BottomNavBar 
+                    agent={currentUser as Agent}
+                    activeView={agentView}
+                    setActiveView={setAgentView}
+                    onLogout={logout}
+                    unreadCount={unreadNotificationCount}
+                />
+            )}
+        </>
+      );
+    }
+    
+    // Default to member dashboard
+    return (
+        <div className="p-4 sm:p-6 lg:p-8">
+            <MemberDashboard 
+                user={currentUser as MemberUser} 
+                broadcasts={broadcasts} 
+                onUpdateUser={updateUser}
+                unreadCount={unreadNotificationCount}
+                onViewProfile={setGlobalViewingProfileId}
+            />
+        </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-slate-900 text-slate-800 dark:text-gray-200">
+    <div className="min-h-screen bg-slate-900 text-white dark">
+      <Header user={currentUser} onLogout={logout} onViewProfile={setGlobalViewingProfileId} />
+      {renderContent()}
       <ToastContainer />
-      <Header user={currentUser} onLogout={handleLogoutWithReset} onViewProfile={handleViewProfile} />
-      {renderDashboard()}
       <AppInstallBanner />
     </div>
   );

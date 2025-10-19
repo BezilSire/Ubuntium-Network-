@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Agent, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import { ProfileCompletionMeter } from './ProfileCompletionMeter';
@@ -20,6 +21,19 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
   });
   const [isLoading, setIsLoading] = useState(false);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    // Sync form data if the agent prop changes (e.g., after a save)
+    setFormData({
+        name: agent.name,
+        email: agent.email,
+        circle: agent.circle,
+        phone: agent.phone || '',
+        id_card_number: agent.id_card_number || '',
+        address: agent.address || '',
+        bio: agent.bio || '',
+    });
+  }, [agent]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;

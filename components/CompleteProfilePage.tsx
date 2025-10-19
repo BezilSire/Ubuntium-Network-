@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User } from '../types';
 import { useToast } from '../contexts/ToastContext';
@@ -52,6 +53,8 @@ export const CompleteProfilePage: React.FC<CompleteProfilePageProps> = ({ user, 
       // On success, the App component will automatically navigate away.
     } catch (error) {
       addToast('Failed to update profile. Please try again.', 'error');
+    } finally {
+      // This ensures the button is re-enabled even if navigation fails.
       setIsLoading(false);
     }
   };

@@ -168,10 +168,14 @@ export const api = {
       return { id: doc.id, ...doc.data() } as Member;
   },
 
-  updateUser: async (uid: string, updatedData: Partial<User>): Promise<void> => {
+  updateUser: async (uid: string, updatedData: Partial<User>): Promise<User> => {
       const userDocRef = doc(db, 'users', uid);
-      // We don't return here because the onSnapshot listener in AuthContext will handle the update.
       await updateDoc(userDocRef, updatedData);
+      const updatedDoc = await getDoc(userDocRef);
+      if (!updatedDoc.exists()) {
+        throw new Error("User document not found after update.");
+      }
+      return { id: updatedDoc.id, ...updatedDoc.data() } as User;
   },
 
   updateMemberProfile: async(memberId: string, updatedData: Partial<Member>): Promise<void> => {
@@ -799,7 +803,7 @@ export const api = {
     batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
 
     const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(targetUserRef, { followers: arrayRemove(targetUserId) });
+    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
 
     await batch.commit();
   },
