@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -18,12 +17,11 @@ import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 import { PublicProfile } from './components/PublicProfile';
 import { CompleteProfilePage } from './components/CompleteProfilePage';
-import { VerifyEmailPage } from './components/VerifyEmailPage';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
 const App: React.FC = () => {
-  const { currentUser, isLoadingAuth, logout, updateUser, firebaseUser } = useAuth();
+  const { currentUser, isLoadingAuth, logout, updateUser } = useAuth();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const { addToast } = useToast();
   const isOnline = useOnlineStatus();
@@ -60,6 +58,9 @@ const App: React.FC = () => {
         fetchBroadcasts();
         const unsubNotifications = api.listenForNotifications(currentUser.id, (notifications) => {
             setUnreadNotificationCount(notifications.filter(n => !n.read).length);
+        }, (error) => {
+            console.error('Error listening for notifications:', error);
+            addToast('Could not retrieve notifications.', 'error');
         });
         return () => unsubNotifications();
     }
@@ -125,10 +126,6 @@ const App: React.FC = () => {
 
     if (!currentUser) {
       return <AuthPage />;
-    }
-
-    if (firebaseUser && !firebaseUser.emailVerified && currentUser.status !== 'pending') {
-        return <VerifyEmailPage user={currentUser} onLogout={logout} />;
     }
 
     if (!currentUser.isProfileComplete && currentUser.status !== 'pending') {

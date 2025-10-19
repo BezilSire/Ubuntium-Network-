@@ -489,7 +489,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         switch (view) {
             case 'dashboard': return renderDashboardView();
             case 'users': return renderUsersView();
-            case 'feed': return <PostsFeed user={user} filter="all" isAdminView onViewProfile={onViewProfile} />;
+            case 'feed': return <PostsFeed user={user} feedType="all" isAdminView onViewProfile={onViewProfile} />;
             case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
             case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={onViewProfile} /></div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;

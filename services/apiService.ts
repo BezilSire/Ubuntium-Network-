@@ -1,3 +1,5 @@
+
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -55,6 +57,35 @@ const getUserProfile = async (uid: string): Promise<User | null> => {
     }
     return null;
 };
+
+/**
+ * Securely fetches user profiles from a list of UIDs using batched 'in' queries.
+ * This is efficient and works with security rules that allow 'get' but not broad 'list' operations on the users collection.
+ */
+const fetchUsersByUids = async (uids: string[], options?: { includeInactive?: boolean }): Promise<User[]> => {
+    if (uids.length === 0) return [];
+    
+    // Firestore 'in' queries are limited to 30 items.
+    const uidsChunks: string[][] = [];
+    for (let i = 0; i < uids.length; i += 30) {
+        uidsChunks.push(uids.slice(i, i + 30));
+    }
+
+    const userPromises = uidsChunks.map(chunk => 
+        getDocs(query(usersCollection, where('__name__', 'in', chunk)))
+    );
+
+    const userSnapshots = await Promise.all(userPromises);
+    const users = userSnapshots.flatMap(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+    
+    if (options?.includeInactive) {
+        return users;
+    }
+    
+    // Filter for active users on the client side by default
+    return users.filter(user => user.status === 'active');
+};
+
 
 export const api = {
   // Auth
@@ -155,56 +186,18 @@ export const api = {
   getUserProfile, 
 
   getSearchableUsers: async (): Promise<User[]> => {
-      const currentUser = auth.currentUser;
-      if (!currentUser) return [];
-      const userProfile = await getUserProfile(currentUser.uid);
-      if (userProfile?.role !== 'admin') {
-          return []; // Non-admins cannot search all users
-      }
-      
-      const q = query(usersCollection, where("status", "==", "active"));
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-  },
-  
-  getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(
-        usersCollection,
-        where("circle", "==", circle),
-        limit(100)
-    );
-    
-    const usersSnap = await getDocs(q);
-    const users = usersSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as User))
-        .filter(user => 
-            user.id !== currentUserId &&
-            user.role === 'member' &&
-            user.status === 'active'
-        )
-        .sort((a, b) => (b.lastSeen?.toMillis() || 0) - (a.lastSeen?.toMillis() || 0));
-        
-    return users.slice(0, 10);
-  },
+    // Securely build a list of users from the public 'members' collection to avoid broad, permission-denied queries on 'users'.
+    const membersSnapshot = await getDocs(query(membersCollection));
+    const memberData = membersSnapshot.docs.map(doc => doc.data());
 
-  getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(
-        usersCollection,
-        where("circle", "==", circle),
-        limit(100)
-    );
+    const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
+    // FIX: Add type guard to ensure agentUids is string[]
+    const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
     
-    const usersSnap = await getDocs(q);
-    const users = usersSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as User))
-        .filter(user => 
-            user.id !== currentUserId &&
-            user.role === 'member' &&
-            user.status === 'active'
-        )
-        .sort((a, b) => a.name.localeCompare(b.name));
-        
-    return users.slice(0, 12);
+    const allUids = [...new Set([...memberUids, ...agentUids])];
+    
+    // This will only find active users by default, which is correct for a search context.
+    return await fetchUsersByUids(allUids);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -305,17 +298,38 @@ export const api = {
   
   // Admin actions
   listenForAllUsers: (callback: (users: User[]) => void, onError: (error: Error) => void): (() => void) => {
-      const q = query(usersCollection, orderBy("name", "asc"));
-      return onSnapshot(q,
-        (snapshot) => {
-            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            callback(users);
-        },
-        (error) => {
-            console.error("Firestore listener error (all users):", error);
-            onError(error);
-        }
-      );
+      const fetchAll = async () => {
+          try {
+              // Securely fetch users by getting IDs from the public `members` collection first.
+              // Limitation: This may not find admins or agents who have never registered a member.
+              const membersSnapshot = await getDocs(query(membersCollection));
+              const memberData = membersSnapshot.docs.map(doc => doc.data());
+
+              const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
+              // FIX: Add type guard to ensure agentUids is string[]
+              const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
+              
+              const allUids = [...new Set([...memberUids, ...agentUids])];
+              
+              if (allUids.length === 0) {
+                  callback([]);
+                  return;
+              }
+
+              const users = await fetchUsersByUids(allUids, { includeInactive: true });
+              
+              users.sort((a,b) => a.name.localeCompare(b.name));
+              callback(users);
+          } catch (e) {
+              if (e instanceof Error) {
+                  onError(e);
+              } else {
+                  onError(new Error('An unknown error occurred fetching users.'));
+              }
+          }
+      };
+      fetchAll();
+      return () => {}; // Return a no-op unsubscribe function as this is now a one-time fetch.
   },
   
   updateUserRole: async (uid: string, newRole: User['role']): Promise<void> => {
@@ -324,14 +338,17 @@ export const api = {
   },
 
   listenForAllMembers: (callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(membersCollection, orderBy("date_registered", "desc"));
+      const q = query(membersCollection);
       return onSnapshot(q,
         (snapshot) => {
             const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
+            members.sort((a, b) => new Date(b.date_registered).getTime() - new Date(a.date_registered).getTime());
+            
             const emailCounts = members.reduce((acc, member) => {
                 acc[member.email] = (acc[member.email] || 0) + 1;
                 return acc;
             }, {} as {[key:string]: number});
+            
             const membersWithDuplicates = members.map(member => ({ ...member, is_duplicate_email: emailCounts[member.email] > 1 }));
             callback(membersWithDuplicates);
         },
@@ -358,17 +375,34 @@ export const api = {
   },
 
   listenForAllAgents: (callback: (agents: Agent[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(usersCollection, where("role", "==", "agent"));
-      return onSnapshot(q, 
-        (snapshot) => {
-            const agents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agent));
-            callback(agents);
-        },
-        (error) => {
-            console.error("Firestore listener error (all agents):", error);
-            onError(error);
-        }
-      );
+      const fetchAgents = async () => {
+          try {
+              // 1. Query the public `members` collection to get a list of agent IDs.
+              // This avoids a broad query on the `users` collection.
+              // Limitation: This will only find agents who have registered at least one member.
+              const membersSnapshot = await getDocs(query(membersCollection));
+              // FIX: Add type guard to ensure agentIds are strings
+              const agentIds = [...new Set(membersSnapshot.docs.map(doc => doc.data().agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP'))];
+
+              if (agentIds.length === 0) {
+                  callback([]);
+                  return;
+              }
+
+              // 2. Fetch the full user profiles for these agent IDs.
+              const agents = await fetchUsersByUids(agentIds, { includeInactive: true });
+              callback(agents as Agent[]);
+
+          } catch (e) {
+              if (e instanceof Error) {
+                  onError(e);
+              } else {
+                  onError(new Error('An unknown error occurred fetching agents.'));
+              }
+          }
+      };
+      fetchAgents();
+      return () => {}; // Return a no-op unsubscribe function.
   },
 
   approveMember: async (member: Member): Promise<void> => {
@@ -387,6 +421,18 @@ export const api = {
       const userRef = doc(db, 'users', member.uid);
       batch.update(userRef, { status: 'active', distress_calls_available: 2 });
       
+      const activity: Omit<Activity, 'id'> = {
+          type: 'NEW_MEMBER',
+          message: `${member.full_name} from ${member.circle} has joined the commons!`,
+          link: member.uid,
+          causerId: member.uid,
+          causerName: member.full_name,
+          causerCircle: member.circle,
+          timestamp: Timestamp.now(),
+      };
+      const activityRef = doc(collection(db, 'activity_feed'));
+      batch.set(activityRef, activity);
+
       await batch.commit();
   },
 
@@ -417,7 +463,7 @@ export const api = {
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast));
   },
   
-  updatePaymentStatus: async (memberId: string, status: Member['payment_status']): Promise<void> => {
+   updatePaymentStatus: async (memberId: string, status: Member['payment_status']): Promise<void> => {
       const memberDocRef = doc(db, 'members', memberId);
       await updateDoc(memberDocRef, { payment_status: status });
   },
@@ -469,6 +515,64 @@ export const api = {
       }
       return null;
   },
+
+  getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
+    const q = query(membersCollection, where("circle", "==", circle), limit(50));
+    const snapshot = await getDocs(q);
+    const memberUids = snapshot.docs
+        .map(doc => doc.data().uid)
+        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+
+    if (memberUids.length === 0) return [];
+    
+    const users = await fetchUsersByUids(memberUids);
+    // Client-side sort, since we can't do this combined with a `where` on a different collection
+    users.sort((a, b) => (b.lastSeen?.toMillis() || 0) - (a.lastSeen?.toMillis() || 0));
+
+    return users.slice(0, 12);
+  },
+
+  getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
+    const q = query(membersCollection, where("circle", "==", circle), limit(100)); // limit to avoid fetching too many
+    const snapshot = await getDocs(q);
+    const memberUids = snapshot.docs
+        .map(doc => doc.data().uid)
+        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+
+    if (memberUids.length === 0) return [];
+
+    const users = await fetchUsersByUids(memberUids);
+    return users.slice(0, 50);
+  },
+  
+  exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
+    // This is less efficient but necessary without open permissions on `users` collection.
+    // 1. Fetch a broad sample of members.
+    const q = query(membersCollection, limit(200)); 
+    const snapshot = await getDocs(q);
+    
+    // 2. Filter out own circle and self, get UIDs
+    let memberUids = snapshot.docs
+        .map(doc => ({ uid: doc.data().uid, circle: doc.data().circle }))
+        .filter(item => item.uid && item.uid !== currentUserId && item.circle !== currentUserCircle)
+        .map(item => item.uid as string);
+
+    // Fallback if no one is found outside the circle
+    if (memberUids.length === 0) {
+      memberUids = snapshot.docs
+        .map(doc => doc.data().uid)
+        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+    }
+    
+    if (memberUids.length === 0) return [];
+
+    // 3. Fetch user profiles for those UIDs
+    const users = await fetchUsersByUids(memberUids);
+    
+    // 4. Shuffle and limit
+    const shuffled = users.sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, limitNum);
+  },
   
   createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
       const newPostData: Omit<Post, 'id'> = {
@@ -483,6 +587,26 @@ export const api = {
           type,
       };
       const postRef = await addDoc(postsCollection, newPostData);
+      
+      let activityType: Activity['type'] | null = null;
+      if (type === 'proposal') activityType = 'NEW_POST_PROPOSAL';
+      else if (type === 'opportunity') activityType = 'NEW_POST_OPPORTUNITY';
+      else if (type === 'offer') activityType = 'NEW_POST_OFFER';
+      else if (type === 'general') activityType = 'NEW_POST_GENERAL';
+
+      if (activityType) {
+          const activity: Omit<Activity, 'id'> = {
+              type: activityType,
+              message: `${author.name} created a new ${type} post.`,
+              link: postRef.id,
+              causerId: author.id,
+              causerName: author.name,
+              causerCircle: author.circle || 'Unknown',
+              timestamp: Timestamp.now(),
+          };
+          await addDoc(activityFeedCollection, activity);
+      }
+      
       return { ...newPostData, id: postRef.id };
   },
 
@@ -549,38 +673,45 @@ export const api = {
       return updatedUser;
   },
 
-  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void): () => void => {
-    // Robust query: Order by date and filter client-side to avoid composite indexes.
-    const q = query(postsCollection, orderBy('date', 'desc'), limit(100)); // Fetch more to filter from
-    
+  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
+    let q;
+    const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
+
+    if (filter === 'all') {
+      // This query specifically asks for public post types, preventing permission errors from trying to access 'distress' posts.
+      q = query(postsCollection, where('type', 'in', allowedInAllFeed), orderBy('date', 'desc'), limit(50));
+    } else {
+      // Ensure we never query for distress posts for regular feeds.
+      if (filter === 'distress') {
+        callback([]); // Return empty for distress filter on public feeds.
+        return () => {};
+      }
+      q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
+    }
+
     return onSnapshot(q, (snapshot) => {
-        let posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        
-        const allowedTypes = ['general', 'proposal', 'offer', 'opportunity'];
-        
-        if (filter === 'all') {
-            posts = posts.filter(p => allowedTypes.includes(p.type));
-        } else {
-            posts = posts.filter(p => p.type === filter);
-        }
-        callback(posts.slice(0, 50)); // Return original intended limit
+      const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+      callback(posts);
     }, (error) => {
-        console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
+      console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
+      onError(error);
     });
   },
 
-  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void): () => void => {
-    // Robust query: Query by authorId only and sort client-side.
+  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
     const q = query(postsCollection, where("authorId", "==", authorId), limit(50));
     return onSnapshot(q, (snapshot) => {
-        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        let posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        // Client-side sorting
         posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         callback(posts);
+    }, (error) => {
+        console.error(`Firestore listener error for posts by author (${authorId}):`, error);
+        onError(error);
     });
   },
 
   getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
-    // Robust query: Query by authorId only and sort client-side.
     const q = query(postsCollection, where("authorId", "==", authorId));
     const snapshot = await getDocs(q);
     const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
@@ -597,6 +728,20 @@ export const api = {
               await updateDoc(postRef, { upvotes: arrayRemove(userId) });
           } else {
               await updateDoc(postRef, { upvotes: arrayUnion(userId) });
+              if (post.authorId !== userId) {
+                  const currentUser = await getUserProfile(userId);
+                  const notification: Omit<Notification, 'id'> = {
+                      userId: post.authorId,
+                      type: 'POST_LIKE',
+                      message: `${currentUser?.name || 'Someone'} liked your post.`,
+                      link: postId,
+                      causerId: userId,
+                      causerName: currentUser?.name || 'Unknown',
+                      timestamp: Timestamp.now(),
+                      read: false,
+                  };
+                  await addDoc(notificationsCollection, notification);
+              }
           }
       }
   },
@@ -684,18 +829,27 @@ export const api = {
   },
   
   // Following / Feed
-  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void): () => void => {
+  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
     if (followingIds.length === 0) {
         callback([]);
         return () => {};
     }
-    const queryIds = followingIds.slice(0, 30); // Firestore 'in' query limit is 30
-    const q = query(postsCollection, where('authorId', 'in', queryIds), limit(50));
+    
+    const allowedPostTypes: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
+    // Securely query for public post types, then filter client-side for followed users.
+    // This avoids complex queries that Firestore doesn't support well (e.g., multiple 'in' clauses)
+    // and prevents permission errors by not requesting 'distress' posts.
+    const q = query(postsCollection, where('type', 'in', allowedPostTypes), orderBy('date', 'desc'), limit(100));
+    
     return onSnapshot(q, (snapshot) => {
-        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        callback(posts);
-    }, (error) => console.error(`Firestore listener error for following posts:`, error));
+        const allRecentPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        const followingIdsSet = new Set(followingIds);
+        const followingPosts = allRecentPosts.filter(post => followingIdsSet.has(post.authorId));
+        callback(followingPosts);
+    }, (error) => {
+        console.error(`Firestore listener error for following posts:`, error);
+        onError(error);
+    });
   },
 
   followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
@@ -704,8 +858,7 @@ export const api = {
     batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
     const targetUserRef = doc(db, 'users', targetUserId);
     batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
-    await batch.commit();
-
+    
     const currentUserDoc = await getDoc(currentUserRef);
     if (currentUserDoc.exists()) {
       const causerName = currentUserDoc.data().name;
@@ -719,8 +872,11 @@ export const api = {
         timestamp: Timestamp.now(),
         read: false,
       };
-      await addDoc(notificationsCollection, notification);
+      const notificationRef = doc(collection(db, 'notifications'));
+      batch.set(notificationRef, notification);
     }
+    
+    await batch.commit();
   },
 
   unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
@@ -766,7 +922,10 @@ export const api = {
     const q = query(reportsCollection, orderBy('date', 'desc'));
     return onSnapshot(q, 
         snapshot => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report))),
-        error => onError(error)
+        error => {
+            console.error("Firestore listener error (reports):", error);
+            onError(error);
+        }
     );
   },
 
@@ -776,6 +935,9 @@ export const api = {
     batch.update(reportRef, { status: 'resolved' });
     const postRef = doc(db, 'posts', postId);
     batch.delete(postRef);
+    
+    const userRef = doc(db, 'users', authorId);
+    batch.update(userRef, { credibility_score: increment(-25) });
     
     await batch.commit();
   },
@@ -787,24 +949,25 @@ export const api = {
 
   // Chat
   getChatContacts: async (currentUser: User, forGroup: boolean = false): Promise<User[]> => {
-    // Admins can contact anyone.
-    if (currentUser.role === 'admin') {
-        const q = query(usersCollection, where("status", "==", "active"));
-        const snapshot = await getDocs(q);
-        return snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as User))
-            .filter(user => user.id !== currentUser.id);
-    }
-    
-    // Members/agents can contact active members and admins.
-    const q = query(usersCollection, where('role', 'in', ['member', 'admin']));
-    const snapshot = await getDocs(q);
+    // Securely build user list from the members collection to avoid permission errors for non-admins.
+    const membersSnapshot = await getDocs(query(membersCollection));
+    const memberData = membersSnapshot.docs.map(doc => doc.data());
 
-    const users = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as User))
-        .filter(user => user.status === 'active' && user.id !== currentUser.id);
+    const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
+    // FIX: Add type guard to ensure agentUids is string[]
+    const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
     
-    return users;
+    const allUids = [...new Set([...memberUids, ...agentUids])];
+    
+    const allActiveUsers = await fetchUsersByUids(allUids);
+    const usersWithoutCurrentUser = allActiveUsers.filter(user => user.id !== currentUser.id);
+
+    if (currentUser.role !== 'admin') {
+      // Members can only chat with other members for now to ensure security.
+      return usersWithoutCurrentUser.filter(user => user.role === 'member' || user.role === 'admin');
+    }
+
+    return usersWithoutCurrentUser;
   },
   
   listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
@@ -813,7 +976,10 @@ export const api = {
         const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
         convos.sort((a, b) => (b.lastMessageTimestamp?.toMillis() || 0) - (a.lastMessageTimestamp?.toMillis() || 0));
         callback(convos);
-      }, (error) => onError(error));
+      }, (error) => {
+          console.error("Firestore listener error (conversations):", error);
+          onError(error);
+      });
   },
 
   listenForMessages: (convoId: string, callback: (msgs: Message[]) => void): () => void => {
@@ -823,30 +989,49 @@ export const api = {
   },
 
   sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>, conversation: Conversation): Promise<void> => {
-      const messagesRef = collection(db, 'conversations', convoId, 'messages');
+      const batch = writeBatch(db);
+      const messagesRef = doc(collection(db, 'conversations', convoId, 'messages'));
       const timestamp = Timestamp.now();
-      await addDoc(messagesRef, { ...message, timestamp });
+      batch.set(messagesRef, { ...message, timestamp });
 
       const convoRef = doc(db, 'conversations', convoId);
-      await updateDoc(convoRef, {
+      batch.update(convoRef, {
           lastMessage: message.text,
           lastMessageSenderId: message.senderId,
           lastMessageTimestamp: timestamp,
           readBy: [message.senderId]
       });
+      
+      const recipients = conversation.members.filter(id => id !== message.senderId);
+      for (const recipientId of recipients) {
+          const notificationRef = doc(collection(db, 'notifications'));
+          const messageSnippet = message.text.length > 50 ? `${message.text.substring(0, 47)}...` : message.text;
+          const notificationMessage = conversation.isGroup 
+            ? `${message.senderName} in ${conversation.name}: "${messageSnippet}"`
+            : `${message.senderName}: "${messageSnippet}"`;
+          const notification: Omit<Notification, 'id'> = {
+              userId: recipientId,
+              type: 'NEW_MESSAGE',
+              message: notificationMessage,
+              link: convoId,
+              causerId: message.senderId,
+              causerName: message.senderName,
+              timestamp,
+              read: false,
+          };
+          batch.set(notificationRef, notification);
+      }
+      
+      await batch.commit();
   },
   
   startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
-      const q = query(conversationsCollection, where('members', 'array-contains', userId1));
+      const q = query(conversationsCollection, where('members', 'array-contains', userId1), where('isGroup', '==', false));
       const snapshot = await getDocs(q);
 
       const existingConvo = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Conversation))
-        .find(convo => 
-            !convo.isGroup && 
-            convo.members.includes(userId2) && 
-            convo.members.length === 2
-        );
+        .find(convo => convo.members.includes(userId2) && convo.members.length === 2);
 
       if (existingConvo) {
           return existingConvo;
@@ -890,16 +1075,15 @@ export const api = {
           memberNames,
           lastMessage: `${memberNames[memberIds[0]]} created the group.`,
           lastMessageSenderId: '',
-          lastMessageTimestamp: Timestamp.now(),
+          lastMessageTimestamp: firestoreServerTimestamp(),
           readBy: []
       });
   },
   
   getGroupMembers: async (memberIds: string[]): Promise<MemberUser[]> => {
       if (memberIds.length === 0) return [];
-      const q = query(usersCollection, where('__name__', 'in', memberIds));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(d => ({...d.data(), id: d.id}) as MemberUser);
+      const users = await fetchUsersByUids(memberIds, { includeInactive: true });
+      return users as MemberUser[];
   },
   
   updateGroupMembers: (convoId: string, memberIds: string[], memberNames: {[key: string]: string}): Promise<void> => {
@@ -913,19 +1097,27 @@ export const api = {
   },
 
   // Notifications
-  listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void): () => void => {
-      // Robust query: Query by userId only and sort on the client to avoid composite index.
+  listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void, onError: (error: Error) => void): () => void => {
       const q = query(notificationsCollection, where('userId', '==', userId), limit(50));
       return onSnapshot(q, (snapshot) => {
         const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
         notifications.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
         callback(notifications);
+      }, (error) => {
+          console.error(`Firestore listener error for notifications (${userId}):`, error);
+          onError(error);
       });
   },
 
-  listenForActivity: (callback: (activities: Activity[]) => void): () => void => {
+  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): () => void => {
       const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))));
+      return onSnapshot(q, 
+        (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))),
+        (error) => {
+            console.error("Firestore listener error (activity feed):", error);
+            onError(error);
+        }
+      );
   },
   
   markNotificationAsRead: (notificationId: string): Promise<void> => {
@@ -934,16 +1126,13 @@ export const api = {
   },
   
   markAllNotificationsAsRead: async (userId: string): Promise<void> => {
-    // Robust query: Fetch all for user and filter for 'read: false' on the client.
-    const q = query(notificationsCollection, where('userId', '==', userId));
+    const q = query(notificationsCollection, where('userId', '==', userId), where('read', '==', false));
     const snapshot = await getDocs(q);
     if (snapshot.empty) return;
 
     const batch = writeBatch(db);
     snapshot.docs.forEach(doc => {
-        if(doc.data().read === false) {
-            batch.update(doc.ref, { read: true });
-        }
+        batch.update(doc.ref, { read: true });
     });
     await batch.commit();
   },

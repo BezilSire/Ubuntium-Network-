@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Post, User, Activity, Comment } from '../types';
 import { api } from '../services/apiService';
@@ -350,29 +349,34 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     
     const followingList = user.following || [];
 
+    const onError = (error: Error) => {
+        addToast("Could not load feed. You may not have the required permissions.", "error");
+        console.error("Feed loading error:", error);
+        setIsLoading(false);
+    }
+
     if (authorId) {
         unsubPosts = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
-        });
+        }, onError);
         setActivities([]);
     } else if (feedType === 'following') {
         unsubPosts = api.listenForFollowingPosts(followingList, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
-        });
+        }, onError);
         setActivities([]);
     }
     else {
         unsubPosts = api.listenForPosts('all', (fetchedPosts) => {
             setPosts(fetchedPosts);
-            // Don't set loading to false here, wait for activities too
-        });
+        }, onError);
 
         unsubActivities = api.listenForActivity((fetchedActivities) => {
             setActivities(fetchedActivities);
-            setIsLoading(false);
-        });
+            setIsLoading(false); // Set loading to false after both are fetched
+        }, onError);
     }
 
     return () => {
@@ -381,7 +385,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
             unsubActivities();
         }
     };
-  }, [feedType, authorId, user.following]);
+  }, [feedType, authorId, user.following, addToast]);
 
   const feedItems = useMemo(() => {
     // Don't merge activities with 'following' or author-specific feeds

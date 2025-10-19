@@ -57,7 +57,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             },
             (error) => {
                 console.error("Failed to load conversations:", error);
-                addToast("Could not load your conversations.", "error");
+                addToast("Could not load your conversations. You may have insufficient permissions.", "error");
             }
         );
         return () => unsubscribe();
@@ -169,7 +169,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
                 </>
             );
         case 'community':
-            return <CommunityPage currentUser={user} onViewProfile={onViewProfile} />;
+            return <CommunityPage currentUser={user} onViewProfile={onViewProfile} onUpdateUser={onUpdateUser} />;
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
         case 'notifications':

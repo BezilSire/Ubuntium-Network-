@@ -39,50 +39,49 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const [user, setUser] = useState<User | null>(null);
     const [memberDetails, setMemberDetails] = useState<Member | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isFollowing, setIsFollowing] = useState(false);
     const [isProcessingFollow, setIsProcessingFollow] = useState(false);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'activity' | 'about' | 'card'>('activity');
     const { addToast } = useToast();
 
     useEffect(() => {
-        setIsFollowing(currentUser.following?.includes(userId) ?? false);
-    }, [currentUser, userId]);
+        // Reset state when the userId prop changes to prevent showing stale data.
+        setUser(null);
+        setMemberDetails(null);
+        setIsLoading(true);
+        setActiveTab('activity');
 
-    useEffect(() => {
         const fetchProfileData = async () => {
-            setIsLoading(true);
-            setActiveTab('activity'); // Reset to default tab on profile change
             try {
                 const userData = await api.getUserProfile(userId);
-
                 if (userData) {
                     setUser(userData);
                     if (userData.role === 'member') {
                         const memberData = await api.getMemberByUid(userId);
                         setMemberDetails(memberData);
-                    } else {
-                        setMemberDetails(null);
                     }
                 } else {
                     addToast("Could not find user profile.", "error");
+                    setUser(null);
                 }
             } catch (error) {
                 addToast("Failed to load profile data.", "error");
                 console.error("Profile load error:", error);
+                setUser(null);
             } finally {
                 setIsLoading(false);
             }
         };
 
         if (userId) {
-          fetchProfileData();
+            fetchProfileData();
         } else {
-          addToast("User ID is missing.", "error");
-          setIsLoading(false);
-          setUser(null);
+            addToast("User ID is missing.", "error");
+            setIsLoading(false);
         }
     }, [userId, addToast]);
+    
+    const isFollowing = currentUser.following?.includes(userId) ?? false;
     
     const handleFollowToggle = async () => {
         if (!user) return;
@@ -95,7 +94,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                 await api.followUser(currentUser.id, user.id);
                 addToast(`You are now following ${user.name}`, 'success');
             }
-            setIsFollowing(!isFollowing); 
         } catch (error) {
             addToast('Action failed. Please try again.', 'error');
         } finally {

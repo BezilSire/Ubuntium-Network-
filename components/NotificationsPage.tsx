@@ -8,6 +8,7 @@ import { ThumbsUpIcon } from './icons/ThumbsUpIcon';
 import { UsersIcon } from './icons/UsersIcon';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { BriefcaseIcon } from './icons/BriefcaseIcon';
+import { useToast } from '../contexts/ToastContext';
 
 interface NotificationsPageProps {
   user: User;
@@ -20,6 +21,8 @@ const NotificationIcon: React.FC<{ type: NotificationItem['type'] }> = ({ type }
     switch (type) {
         case 'NEW_MESSAGE':
         case 'NEW_CHAT':
+        case 'POST_COMMENT':
+        case 'NEW_FOLLOWER':
             return <MessageSquareIcon className={className} />;
         case 'POST_LIKE': return <ThumbsUpIcon className={className} />;
         case 'NEW_MEMBER': return <UsersIcon className={className} />;
@@ -35,23 +38,46 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
 
   useEffect(() => {
     setIsLoading(true);
+    let notifsLoaded = false;
+    let activityLoaded = false;
+
+    const checkLoadingDone = () => {
+        if (notifsLoaded && activityLoaded) {
+            setIsLoading(false);
+        }
+    }
+
     const unsubNotifications = api.listenForNotifications(user.id, (notifs) => {
       setNotifications(notifs);
-      setIsLoading(false);
+      notifsLoaded = true;
+      checkLoadingDone();
+    }, (error) => {
+        addToast("Could not load notifications due to a permissions issue.", "error");
+        console.error("Notifications listener error:", error);
+        notifsLoaded = true;
+        checkLoadingDone();
     });
+    
     const unsubActivities = api.listenForActivity((acts) => {
       setActivities(acts);
-      setIsLoading(false);
+      activityLoaded = true;
+      checkLoadingDone();
+    }, (error) => {
+      addToast("Could not load community activity.", "error");
+      console.error("Activity listener error:", error);
+      activityLoaded = true;
+      checkLoadingDone();
     });
 
     return () => {
       unsubNotifications();
       unsubActivities();
     };
-  }, [user.id]);
+  }, [user.id, addToast]);
 
   const mergedItems = useMemo((): NotificationItem[] => {
     const personal: NotificationItem[] = notifications.map(n => ({ ...n, itemType: 'notification' }));
@@ -67,7 +93,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
       api.markNotificationAsRead(item.id).catch(err => console.error("Failed to mark as read:", err));
     }
     // If onViewProfile is provided and it's a profile link, use it. Otherwise, use onNavigate.
-    if (onViewProfile && (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE')) {
+    if (onViewProfile && (item.type === 'NEW_MEMBER' || item.type === 'POST_LIKE' || item.type === 'NEW_FOLLOWER')) {
         const targetId = item.itemType === 'notification' ? item.causerId : item.link;
         onViewProfile(targetId);
     } else {
