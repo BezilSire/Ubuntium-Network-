@@ -1,7 +1,7 @@
 
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Post, User, Activity, Comment } from '../types';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Post, User, Comment } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { formatTimeAgo } from '../utils';
@@ -17,13 +17,14 @@ import { SirenIcon } from './icons/SirenIcon';
 import { RepeatIcon } from './icons/RepeatIcon';
 import { ShareIcon } from './icons/ShareIcon';
 import { RepostModal } from './RepostModal';
-import { ActivityItem } from './ActivityItem';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { UsersIcon } from './icons/UsersIcon';
 import { MessageCircleIcon } from './icons/MessageCircleIcon';
 import { SendIcon } from './icons/SendIcon';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, DocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { PinIcon } from './icons/PinIcon';
+import { LoaderIcon } from './icons/LoaderIcon';
 
 // --- Comment Section Components ---
 
@@ -148,9 +149,10 @@ export const PostItem: React.FC<{
     onRepost: (post: Post) => void;
     onShare: (post: Post) => void;
     onFollowToggle: (targetUserId: string, targetUserName: string) => void;
+    onTogglePin: (post: Post) => void;
     isAdminView?: boolean;
 }> = 
-({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, onFollowToggle, isAdminView }) => {
+({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, onFollowToggle, onTogglePin, isAdminView }) => {
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
     const isFollowing = currentUser.following?.includes(post.authorId);
@@ -159,17 +161,17 @@ export const PostItem: React.FC<{
   
     const typeStyles: Record<string, { icon: React.ReactNode; borderColor: string; title: string }> = {
         proposal: {
-          icon: <LightbulbIcon className="h-5 w-5 text-blue-400" />,
+          icon: <LightbulbIcon className="h-4 w-4 text-blue-300" />,
           borderColor: 'border-blue-500/50',
           title: 'Proposal',
         },
         offer: {
-          icon: <UsersIcon className="h-5 w-5 text-purple-400" />,
+          icon: <UsersIcon className="h-4 w-4 text-purple-300" />,
           borderColor: 'border-purple-500/50',
           title: 'Offer',
         },
         opportunity: {
-          icon: <BriefcaseIcon className="h-5 w-5 text-yellow-400" />,
+          icon: <BriefcaseIcon className="h-4 w-4 text-yellow-300" />,
           borderColor: 'border-yellow-500/50',
           title: 'Opportunity',
         },
@@ -189,6 +191,12 @@ export const PostItem: React.FC<{
 
     return (
         <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 border-l-4 ${style.borderColor} ${isDistressPost ? 'motion-safe:animate-pulse' : ''}`}>
+            {post.isPinned && (
+                <div className="flex items-center space-x-2 text-xs text-yellow-400 font-semibold mb-2 pb-2 border-b border-slate-700/50">
+                    <PinIcon className="h-4 w-4 fill-current" />
+                    <span>Pinned Post</span>
+                </div>
+            )}
             {post.repostedFrom && (
                 <div className="text-xs text-gray-400 flex items-center space-x-2">
                     <RepeatIcon className="h-4 w-4" />
@@ -197,7 +205,7 @@ export const PostItem: React.FC<{
             )}
 
             {style.title && post.type !== 'distress' && (
-                <div className="flex items-center space-x-2 text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider bg-slate-700/50 text-gray-300 px-2.5 py-1 rounded-full self-start">
                     {style.icon}
                     <span>{style.title}</span>
                 </div>
@@ -237,6 +245,11 @@ export const PostItem: React.FC<{
                     <p className="text-xs text-gray-500">{post.authorCircle} &bull; {formatTimeAgo(post.date)}</p>
                 </div>
                 <div className="ml-auto flex items-center space-x-3 text-gray-500">
+                    {isAdminView && !isDistressPost && (
+                        <button onClick={() => onTogglePin(post)} className="hover:text-yellow-400" title={post.isPinned ? "Unpin post" : "Pin post"}>
+                            <PinIcon className={`h-4 w-4 ${post.isPinned ? 'fill-current text-yellow-400' : ''}`} />
+                        </button>
+                    )}
                     {isDistressPost ? (
                         <>
                             {isAdminView && (
@@ -331,10 +344,15 @@ interface PostsFeedProps {
   onViewProfile: (userId: string) => void;
 }
 
+const POSTS_PER_PAGE = 10;
+
 export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastVisible, setLastVisible] = useState<DocumentSnapshot<DocumentData> | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const [postToEdit, setPostToEdit] = useState<Post | null>(null);
   const [postToReport, setPostToReport] = useState<Post | null>(null);
   const [postToDelete, setPostToDelete] = useState<Post | null>(null);
@@ -342,13 +360,55 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
 
   const { addToast } = useToast();
 
-  useEffect(() => {
+  const fetchInitialPosts = useCallback(async () => {
     setIsLoading(true);
-    let unsubPosts: () => void;
-    let unsubActivities: (() => void) | null = null;
-    
-    const followingList = user.following || [];
+    setHasMore(true);
+    setPosts([]);
+    try {
+      const [pinnedPosts, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
+        api.fetchPinnedPosts(),
+        api.fetchRegularPosts(POSTS_PER_PAGE)
+      ]);
+      
+      const all = [...pinnedPosts, ...regularPosts];
+      const uniquePosts = Array.from(new Map(all.map(p => [p.id, p])).values());
 
+      setPosts(uniquePosts);
+      setLastVisible(newLastVisible);
+      if (regularPosts.length < POSTS_PER_PAGE) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      addToast("Could not load feed. Please check your permissions.", "error");
+      console.error("Feed loading error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast]);
+
+  const fetchMorePosts = useCallback(async () => {
+    if (!hasMore || isLoadingMore || !lastVisible) return;
+    setIsLoadingMore(true);
+    try {
+      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, lastVisible);
+      
+      const existingIds = new Set(posts.map(p => p.id));
+      const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.id));
+
+      setPosts(prev => [...prev, ...uniqueNewPosts]);
+      setLastVisible(newLastVisible);
+      if (newPosts.length < POSTS_PER_PAGE) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      addToast("Could not load more posts.", "error");
+      console.error("Feed loading more error:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [addToast, hasMore, isLoadingMore, lastVisible, posts]);
+
+  useEffect(() => {
     const onError = (error: Error) => {
         addToast("Could not load feed. You may not have the required permissions.", "error");
         console.error("Feed loading error:", error);
@@ -356,65 +416,38 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     }
 
     if (authorId) {
-        unsubPosts = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
+        setIsLoading(true);
+        const unsub = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
+            setHasMore(false);
         }, onError);
-        setActivities([]);
+        return unsub;
     } else if (feedType === 'following') {
-        unsubPosts = api.listenForFollowingPosts(followingList, (fetchedPosts) => {
+        setIsLoading(true);
+        const unsub = api.listenForFollowingPosts(user.following || [], (fetchedPosts) => {
             setPosts(fetchedPosts);
             setIsLoading(false);
+            setHasMore(false);
         }, onError);
-        setActivities([]);
+        return unsub;
     }
-    else {
-        let postsLoaded = false;
-        let activitiesLoaded = false;
-
-        const checkLoadingDone = () => {
-            if (postsLoaded && activitiesLoaded) {
-                setIsLoading(false);
-            }
-        }
-
-        unsubPosts = api.listenForPosts('all', (fetchedPosts) => {
-            setPosts(fetchedPosts);
-            postsLoaded = true;
-            checkLoadingDone();
-        }, onError);
-
-        unsubActivities = api.listenForActivity((fetchedActivities) => {
-            setActivities(fetchedActivities);
-            activitiesLoaded = true;
-            checkLoadingDone();
-        }, onError);
+    else { // 'all' feed with pagination
+        fetchInitialPosts();
     }
-
-    return () => {
-        unsubPosts();
-        if (unsubActivities) {
-            unsubActivities();
-        }
-    };
-  }, [feedType, authorId, user.following, addToast]);
-
-  const feedItems = useMemo(() => {
-    // Don't merge activities with 'following' or author-specific feeds
-    if (feedType === 'following' || authorId) {
-        return posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
-    }
-
-    const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
-    const typedActivities = activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() }));
     
-    const allItems = [...typedPosts, ...typedActivities];
-    
-    allItems.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime());
+    return () => {}; // No cleanup needed for async fetches
+  }, [feedType, authorId, user.following, addToast, fetchInitialPosts]);
 
-    return allItems;
-  }, [posts, activities, feedType, authorId]);
-
+  const sortedPosts = useMemo(() => {
+    return [...posts].sort((a, b) => {
+        const aIsPinned = a.isPinned ?? false;
+        const bIsPinned = b.isPinned ?? false;
+        if (aIsPinned && !bIsPinned) return -1;
+        if (!aIsPinned && bIsPinned) return 1;
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }, [posts]);
 
   const handleUpvote = async (postId: string) => {
     try {
@@ -479,7 +512,6 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
               console.error('Share failed:', err);
           }
       } else {
-          // Fallback for desktop browsers
           try {
               await navigator.clipboard.writeText(`${postText}\n\nView on Ubuntium: ${postUrl}`);
               addToast('Post content copied to clipboard!', 'info');
@@ -519,16 +551,29 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     }
   };
 
+  const handleTogglePin = async (post: Post) => {
+    if (user.role !== 'admin') return;
+    try {
+      await api.togglePinPost(user, post.id, !post.isPinned);
+      addToast(post.isPinned ? "Post unpinned." : "Post pinned to top.", "success");
+    } catch (error) {
+      addToast("Failed to update pin status.", "error");
+    }
+  };
+
+
   return (
     <div className="space-y-4">
       {isLoading ? (
-        <p className="text-center text-gray-400 py-12">Loading feed...</p>
-      ) : feedItems.length > 0 ? (
-        <div className="space-y-4">
-          {feedItems.map(item =>
-            item.itemType === 'post' ? (
+        <div className="flex justify-center items-center py-12">
+            <LoaderIcon className="h-8 w-8 animate-spin text-green-500" />
+        </div>
+      ) : sortedPosts.length > 0 ? (
+        <>
+            <div className="space-y-4">
+            {sortedPosts.map(item => (
                 <PostItem 
-                    key={`${item.itemType}-${item.id}`} 
+                    key={item.id} 
                     post={item} 
                     currentUser={user} 
                     onUpvote={handleUpvote} 
@@ -540,16 +585,27 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
                     onRepost={setPostToRepost} 
                     onShare={handleShare}
                     onFollowToggle={handleFollowToggle}
+                    onTogglePin={handleTogglePin}
                 />
-            ) : (
-                <ActivityItem 
-                    key={`${item.itemType}-${item.id}`} 
-                    activity={item} 
-                    onViewProfile={onViewProfile} 
-                />
-            )
-          )}
-        </div>
+            ))}
+            </div>
+            {feedType === 'all' && hasMore && (
+                <div className="text-center mt-6">
+                    <button 
+                        onClick={fetchMorePosts}
+                        disabled={isLoadingMore}
+                        className="inline-flex items-center justify-center px-4 py-2 bg-slate-700 text-white rounded-md hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-green-500 font-semibold disabled:bg-slate-800 disabled:cursor-not-allowed"
+                    >
+                        {isLoadingMore ? (
+                            <>
+                                <LoaderIcon className="h-5 w-5 mr-2 animate-spin" />
+                                Loading...
+                            </>
+                        ) : 'Load More'}
+                    </button>
+                </div>
+            )}
+        </>
       ) : (
         <div className="text-center text-gray-500 py-12 bg-slate-800 rounded-lg">
             {authorId ? "This user hasn't made any posts yet." : 

@@ -125,6 +125,7 @@ export interface Post {
     date: string;
   };
   commentCount?: number;
+  isPinned?: boolean;
 }
 
 // Structure for a chat conversation.

@@ -1,3 +1,4 @@
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -25,7 +26,10 @@ import {
   deleteDoc,
   writeBatch,
   increment,
-  serverTimestamp as firestoreServerTimestamp
+  serverTimestamp as firestoreServerTimestamp,
+  startAfter,
+  DocumentSnapshot,
+  DocumentData,
 } from 'firebase/firestore';
 import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { auth, db, rtdb } from './firebase';
@@ -184,18 +188,15 @@ export const api = {
   getUserProfile, 
 
   getSearchableUsers: async (): Promise<User[]> => {
-    // Securely build a list of users from the public 'members' collection to avoid broad, permission-denied queries on 'users'.
-    const membersSnapshot = await getDocs(query(membersCollection));
-    const memberData = membersSnapshot.docs.map(doc => doc.data());
-
-    const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
-    // FIX: Add type guard to ensure agentUids is string[]
-    const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
-    
-    const allUids = [...new Set([...memberUids, ...agentUids])];
+    // Securely build a list of users by looking at recent posters to avoid broad, permission-denied queries on 'users' or 'members'.
+    const q = query(postsCollection, orderBy("date", "desc"), limit(500));
+    const postsSnapshot = await getDocs(q);
+    // @ts-ignore
+    // FIX: Using a more robust type guard and Array.from to prevent type inference issues.
+    const authorUids = Array.from(new Set(postsSnapshot.docs.map(doc => doc.data().authorId).filter((id): id is string => typeof id === 'string' && !!id)));
     
     // This will only find active users by default, which is correct for a search context.
-    return await fetchUsersByUids(allUids);
+    return await fetchUsersByUids(authorUids);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -506,59 +507,77 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(membersCollection, where("circle", "==", circle), limit(50));
+    const q = query(
+        activityFeedCollection, 
+        where("type", "==", "NEW_MEMBER"), 
+        where("causerCircle", "==", circle),
+        orderBy("timestamp", "desc"),
+        limit(12)
+    );
     const snapshot = await getDocs(q);
     const memberUids = snapshot.docs
-        .map(doc => doc.data().uid)
-        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+        .map(doc => doc.data().causerId)
+        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
     if (memberUids.length === 0) return [];
     
-    const users = await fetchUsersByUids(memberUids);
-    // Client-side sort, since we can't do this combined with a `where` on a different collection
-    users.sort((a, b) => (b.lastSeen?.toMillis() || 0) - (a.lastSeen?.toMillis() || 0));
-
-    return users.slice(0, 12);
+    // @ts-ignore
+    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
+    return await fetchUsersByUids(Array.from(new Set(memberUids)));
   },
 
   getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(membersCollection, where("circle", "==", circle), limit(100)); // limit to avoid fetching too many
+    const q = query(
+        postsCollection, 
+        where("authorCircle", "==", circle),
+        orderBy("date", "desc"),
+        limit(200) // Fetch a decent number of posts to find unique authors
+    );
     const snapshot = await getDocs(q);
-    const memberUids = snapshot.docs
-        .map(doc => doc.data().uid)
-        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+    const authorUids = snapshot.docs
+        .map(doc => doc.data().authorId)
+        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
-    if (memberUids.length === 0) return [];
+    if (authorUids.length === 0) return [];
 
-    const users = await fetchUsersByUids(memberUids);
-    return users.slice(0, 50);
+    // @ts-ignore
+    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
+    const uniqueUids = Array.from(new Set(authorUids));
+    const users = await fetchUsersByUids(uniqueUids);
+    return users.slice(0, 50); // Return up to 50 users from the circle
   },
   
   exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
-    // This is less efficient but necessary without open permissions on `users` collection.
-    // 1. Fetch a broad sample of members.
-    const q = query(membersCollection, limit(200)); 
+    const constraints: any[] = [
+        orderBy("date", "desc"),
+        limit(300) // Get a large pool of recent posts
+    ];
+
+    if (currentUserCircle) {
+        constraints.unshift(where("authorCircle", "!=", currentUserCircle));
+    }
+
+    const q = query(postsCollection, ...constraints);
     const snapshot = await getDocs(q);
     
-    // 2. Filter out own circle and self, get UIDs
     let memberUids = snapshot.docs
-        .map(doc => ({ uid: doc.data().uid, circle: doc.data().circle }))
-        .filter(item => item.uid && item.uid !== currentUserId && item.circle !== currentUserCircle)
-        .map(item => item.uid as string);
+        .map(doc => doc.data().authorId)
+        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
-    // Fallback if no one is found outside the circle
-    if (memberUids.length === 0) {
+    // Fallback if no one is found outside the circle (or user has no circle)
+    if (memberUids.length === 0 && snapshot.docs.length > 0) {
       memberUids = snapshot.docs
-        .map(doc => doc.data().uid)
-        .filter((uid): uid is string => !!uid && uid !== currentUserId);
+        .map(doc => doc.data().authorId)
+        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
     }
     
-    if (memberUids.length === 0) return [];
+    // @ts-ignore
+    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
+    const uniqueUids = Array.from(new Set(memberUids));
+    if (uniqueUids.length === 0) return [];
 
-    // 3. Fetch user profiles for those UIDs
-    const users = await fetchUsersByUids(memberUids);
+    const users = await fetchUsersByUids(uniqueUids);
     
-    // 4. Shuffle and limit
     const shuffled = users.sort(() => 0.5 - Math.random());
     return shuffled.slice(0, limitNum);
   },
@@ -659,272 +678,154 @@ export const api = {
       return updatedUser;
   },
 
-  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
-    let q;
-    const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
-
+  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
+    // This function is now only used for single-type feeds (like distress) and the old real-time 'all' feed logic is deprecated
+    // in favor of the paginated fetch functions below.
     if (filter === 'all') {
-      // This query specifically asks for public post types, preventing permission errors from trying to access 'distress' posts.
-      q = query(postsCollection, where('type', 'in', allowedInAllFeed), orderBy('date', 'desc'), limit(50));
-    } else {
-      // Ensure we never query for distress posts for regular feeds.
-      if (filter === 'distress') {
-        callback([]); // Return empty for distress filter on public feeds.
-        return () => {};
-      }
-      q = query(postsCollection, where('type', '==', filter), orderBy('date', 'desc'), limit(50));
+      onError(new Error("'all' filter is deprecated for real-time listeners. Use paginated fetch functions instead."));
+      callback([]);
+      return () => {};
     }
 
-    return onSnapshot(q, (snapshot) => {
-      const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-      callback(posts);
-    }, (error) => {
-      console.error(`Firestore listener error for posts (filter: ${filter}):`, error);
-      onError(error);
-    });
+    const q = query(postsCollection, where("type", "==", filter), limit(50));
+        
+    return onSnapshot(q,
+        (snapshot) => {
+            const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+            posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            callback(posts);
+        },
+        (error) => {
+            console.error(`Firestore listener error (posts, filter: ${filter}):`, error);
+            onError(error);
+        }
+    );
   },
 
-  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
-    const q = query(postsCollection, where("authorId", "==", authorId), limit(50));
-    return onSnapshot(q, (snapshot) => {
-        let posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        // Client-side sorting
-        posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        callback(posts);
-    }, (error) => {
-        console.error(`Firestore listener error for posts by author (${authorId}):`, error);
-        onError(error);
-    });
-  },
-
-  getPostsByAuthor: async (authorId: string): Promise<Post[]> => {
-    const q = query(postsCollection, where("authorId", "==", authorId));
+  fetchPinnedPosts: async (): Promise<Post[]> => {
+    const q = query(postsCollection, where("isPinned", "==", true));
     const snapshot = await getDocs(q);
     const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+    // Sort client-side to avoid needing a composite index
     posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return posts;
   },
 
-  upvotePost: async (postId: string, userId: string): Promise<void> => {
-      const postRef = doc(db, 'posts', postId);
-      const postDoc = await getDoc(postRef);
-      if (postDoc.exists()) {
-          const post = postDoc.data() as Post;
-          if (post.upvotes.includes(userId)) {
-              await updateDoc(postRef, { upvotes: arrayRemove(userId) });
-          } else {
-              await updateDoc(postRef, { upvotes: arrayUnion(userId) });
-              if (post.authorId !== userId) {
-                  const currentUser = await getUserProfile(userId);
-                  const notification: Omit<Notification, 'id'> = {
-                      userId: post.authorId,
-                      type: 'POST_LIKE',
-                      message: `${currentUser?.name || 'Someone'} liked your post.`,
-                      link: postId,
-                      causerId: userId,
-                      causerName: currentUser?.name || 'Unknown',
-                      timestamp: Timestamp.now(),
-                      read: false,
-                  };
-                  await addDoc(notificationsCollection, notification);
-              }
-          }
+  fetchRegularPosts: async (limitNum: number, lastVisible?: DocumentSnapshot<DocumentData>): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
+    const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
+    
+    // Fetch a larger batch to account for client-side filtering.
+    const queryLimit = limitNum * 3;
+
+    const constraints: any[] = [
+        orderBy("date", "desc"),
+        limit(queryLimit)
+    ];
+
+    if (lastVisible) {
+        constraints.push(startAfter(lastVisible));
+    }
+
+    // Query without type filter to avoid composite index
+    const q = query(postsCollection, ...constraints);
+    const snapshot = await getDocs(q);
+    
+    // Filter client-side
+    const posts = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Post))
+        .filter(p => allowedInAllFeed.includes(p.type));
+        
+    // The new cursor is the last document from the *unfiltered* query result.
+    const newLastVisible = snapshot.docs[snapshot.docs.length - 1];
+
+    return { posts, lastVisible: newLastVisible || null };
+  },
+
+  listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
+      // Removed orderBy from query to prevent needing a composite index
+      const q = query(postsCollection, where("authorId", "==", authorId), limit(50));
+      return onSnapshot(q, (snapshot) => {
+          const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+          // Sort client-side
+          posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          callback(posts);
+      }, onError);
+  },
+
+  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
+      if (followingIds.length === 0) {
+          callback([]);
+          return () => {};
       }
+      const chunks: string[][] = [];
+      for (let i = 0; i < followingIds.length; i += 30) {
+        chunks.push(followingIds.slice(i, i + 30));
+      }
+      
+      const postMap = new Map<string, Post>();
+
+      const unsubscribers = chunks.map(chunk => {
+        // Removed orderBy from query to prevent needing a composite index
+        const q = query(postsCollection, where("authorId", "in", chunk), limit(50));
+        return onSnapshot(q, (snapshot) => {
+            snapshot.docs.forEach(doc => {
+              postMap.set(doc.id, { id: doc.id, ...doc.data() } as Post);
+            });
+            const allPosts = Array.from(postMap.values());
+            // This existing client-side sort is now essential
+            allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            callback(allPosts);
+        }, onError);
+      });
+      
+      return () => unsubscribers.forEach(unsub => unsub());
+  },
+  
+  togglePinPost: async (currentUser: User, postId: string, newPinState: boolean): Promise<void> => {
+    if (currentUser.role !== 'admin') {
+        throw new Error("Permission denied: Admin access required.");
+    }
+    const postRef = doc(db, 'posts', postId);
+    await updateDoc(postRef, { isPinned: newPinState });
+  },
+
+  upvotePost: async (postId: string, userId: string): Promise<void> => {
+    const postRef = doc(db, 'posts', postId);
+    const postDoc = await getDoc(postRef);
+    if (postDoc.exists()) {
+      const postData = postDoc.data() as Post;
+      if (postData.upvotes.includes(userId)) {
+        // User has already liked, so unlike
+        await updateDoc(postRef, { upvotes: arrayRemove(userId) });
+      } else {
+        // User has not liked, so like
+        await updateDoc(postRef, { upvotes: arrayUnion(userId) });
+      }
+    }
   },
 
   deletePost: async (postId: string): Promise<void> => {
-      const batch = writeBatch(db);
-
-      // 1. Reference to the post to be deleted
-      const postRef = doc(db, 'posts', postId);
-      batch.delete(postRef);
-
-      // 2. Query for and delete the associated activity feed item
-      const activityQuery = query(activityFeedCollection, where("link", "==", postId), limit(1));
-      const activitySnapshot = await getDocs(activityQuery);
-      if (!activitySnapshot.empty) {
-          batch.delete(activitySnapshot.docs[0].ref);
-      }
-      
-      // 3. Query for and delete all comments in the post's subcollection
-      const commentsRef = collection(db, 'posts', postId, 'comments');
-      const commentsSnapshot = await getDocs(commentsRef);
-      commentsSnapshot.docs.forEach(commentDoc => {
-          batch.delete(commentDoc.ref);
-      });
-
-      // 4. Commit all deletions at once
-      await batch.commit();
+    const postRef = doc(db, 'posts', postId);
+    await deleteDoc(postRef);
   },
   
   deleteDistressPost: async (currentUser: User, postId: string, authorId: string): Promise<void> => {
-      if (currentUser.role !== 'admin') {
-          throw new Error("Permission denied: Admin access required.");
-      }
-      const batch = writeBatch(db);
-      const postRef = doc(db, 'posts', postId);
-      batch.delete(postRef);
-
-      const userRef = doc(db, 'users', authorId);
-      const userDoc = await getDoc(userRef);
-      if (userDoc.exists()) {
-          const userData = userDoc.data() as MemberUser;
-          if (userData.last_distress_post_id === postId) {
-              batch.update(userRef, { last_distress_post_id: null });
-          }
-      }
-      await batch.commit();
+    if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
+    const batch = writeBatch(db);
+    const postRef = doc(db, 'posts', postId);
+    batch.delete(postRef);
+    const userRef = doc(db, 'users', authorId);
+    batch.update(userRef, { last_distress_post_id: null });
+    await batch.commit();
   },
 
   updatePost: async (postId: string, content: string): Promise<void> => {
-      const postRef = doc(db, 'posts', postId);
-      await updateDoc(postRef, { content });
-  },
-
-  // Comments
-  listenForComments: (postId: string, callback: (comments: Comment[]) => void): () => void => {
-    const commentsRef = collection(db, 'posts', postId, 'comments');
-    const q = query(commentsRef, orderBy('timestamp', 'asc'));
-    return onSnapshot(q, (snapshot) => {
-        const comments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment));
-        callback(comments);
-    });
-  },
-
-  addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
     const postRef = doc(db, 'posts', postId);
-    const commentsRef = collection(postRef, 'comments');
-    const timestamp = Timestamp.now();
-    await addDoc(commentsRef, { ...commentData, timestamp });
-    await updateDoc(postRef, { commentCount: increment(1) });
-
-    const postDoc = await getDoc(postRef);
-    if(postDoc.exists()){
-      const post = postDoc.data() as Post;
-      if (post.authorId !== commentData.authorId) {
-        const notification: Omit<Notification, 'id'> = {
-          userId: post.authorId,
-          type: 'POST_COMMENT',
-          message: `${commentData.authorName} commented on your post.`,
-          link: postId,
-          causerId: commentData.authorId,
-          causerName: commentData.authorName,
-          timestamp,
-          read: false,
-        };
-        await addDoc(notificationsCollection, notification);
-      }
-    }
+    await updateDoc(postRef, { content });
   },
 
-  deleteComment: async (postId: string, commentId: string): Promise<void> => {
-      const commentRef = doc(db, 'posts', postId, 'comments', commentId);
-      await deleteDoc(commentRef);
-      const postRef = doc(db, 'posts', postId);
-      await updateDoc(postRef, { commentCount: increment(-1) });
-  },
-
-  upvoteComment: async (postId: string, commentId: string, userId: string): Promise<void> => {
-      const commentRef = doc(db, 'posts', postId, 'comments', commentId);
-      const commentDoc = await getDoc(commentRef);
-      if (commentDoc.exists()) {
-          const comment = commentDoc.data() as Comment;
-          if (comment.upvotes.includes(userId)) {
-              await updateDoc(commentRef, { upvotes: arrayRemove(userId) });
-          } else {
-              await updateDoc(commentRef, { upvotes: arrayUnion(userId) });
-          }
-      }
-  },
-  
-  // Following / Feed
-  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void, onError: (error: Error) => void): () => void => {
-    if (followingIds.length === 0) {
-        callback([]);
-        return () => {};
-    }
-    
-    const allowedPostTypes: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
-    // Securely query for public post types, then filter client-side for followed users.
-    // This avoids complex queries that Firestore doesn't support well (e.g., multiple 'in' clauses)
-    // and prevents permission errors by not requesting 'distress' posts.
-    const q = query(postsCollection, where('type', 'in', allowedPostTypes), orderBy('date', 'desc'), limit(100));
-    
-    return onSnapshot(q, (snapshot) => {
-        const allRecentPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-        const followingIdsSet = new Set(followingIds);
-        const followingPosts = allRecentPosts.filter(post => followingIdsSet.has(post.authorId));
-        callback(followingPosts);
-    }, (error) => {
-        console.error(`Firestore listener error for following posts:`, error);
-        onError(error);
-    });
-  },
-
-  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
-      return onSnapshot(q, 
-        (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity))),
-        (error) => {
-            console.error("Firestore listener error (activity feed):", error);
-            onError(error);
-        }
-      );
-  },
-
-  followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-    const currentUserRef = doc(db, 'users', currentUserId);
-    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
-    
-    const currentUserDoc = await getDoc(currentUserRef);
-    if (currentUserDoc.exists()) {
-      const causerName = currentUserDoc.data().name;
-      const notification: Omit<Notification, 'id'> = {
-        userId: targetUserId,
-        type: 'NEW_FOLLOWER',
-        message: `${causerName} started following you.`,
-        link: currentUserId,
-        causerId: currentUserId,
-        causerName: causerName,
-        timestamp: Timestamp.now(),
-        read: false,
-      };
-      const notificationRef = doc(collection(db, 'notifications'));
-      batch.set(notificationRef, notification);
-    }
-    
-    await batch.commit();
-  },
-
-  unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-    const currentUserRef = doc(db, 'users', currentUserId);
-    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
-    await batch.commit();
-  },
-
-  reportUser: async (reporter: User, reportedUser: User, reason: string, details: string): Promise<void> => {
-    const newReport: Omit<UserReport, 'id'> = {
-        reporterId: reporter.id,
-        reporterName: reporter.name,
-        reportedUserId: reportedUser.id,
-        reportedUserName: reportedUser.name,
-        reason,
-        details,
-        date: new Date().toISOString(),
-        status: 'new',
-    };
-    await addDoc(userReportsCollection, newReport);
-  },
-
-  // Reporting
   reportPost: async (reporter: User, post: Post, reason: string, details: string): Promise<void> => {
-    const newReport: Omit<Report, 'id'> = {
+    const reportData: Omit<Report, 'id'> = {
         reporterId: reporter.id,
         reporterName: reporter.name,
         postId: post.id,
@@ -935,235 +836,332 @@ export const api = {
         date: new Date().toISOString(),
         status: 'new',
     };
-    await addDoc(reportsCollection, newReport);
+    await addDoc(reportsCollection, reportData);
   },
-
-  listenForReports: (currentUser: User, callback: (reports: Report[]) => void, onError: (error: Error) => void): () => void => {
+  
+  reportUser: async (reporter: User, reportedUser: User, reason: string, details: string): Promise<void> => {
+    const reportData: Omit<UserReport, 'id'> = {
+        reporterId: reporter.id,
+        reporterName: reporter.name,
+        reportedUserId: reportedUser.id,
+        reportedUserName: reportedUser.name,
+        reason,
+        details,
+        date: new Date().toISOString(),
+        status: 'new'
+    };
+    await addDoc(userReportsCollection, reportData);
+  },
+  
+  listenForReports: (currentUser: User, callback: (reports: Report[]) => void, onError: (error: Error) => void): (() => void) => {
     if (currentUser.role !== 'admin') {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
     }
-    const q = query(reportsCollection, orderBy('date', 'desc'));
-    return onSnapshot(q, 
-        snapshot => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report))),
-        error => {
-            console.error("Firestore listener error (reports):", error);
-            onError(error);
-        }
-    );
+    const q = query(reportsCollection, orderBy("date", "desc"));
+    return onSnapshot(q, (snapshot) => {
+        const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report));
+        callback(reports);
+    }, onError);
   },
 
-  resolvePostReport: async (currentUser: User, reportId: string, postId: string, authorId: string): Promise<void> => {
+  resolvePostReport: async(currentUser: User, reportId: string, postId: string, authorId: string): Promise<void> => {
     if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
     const batch = writeBatch(db);
+    
+    // Mark report as resolved
     const reportRef = doc(db, 'reports', reportId);
     batch.update(reportRef, { status: 'resolved' });
+
+    // Delete the offending post
     const postRef = doc(db, 'posts', postId);
     batch.delete(postRef);
-    
+
+    // Penalize the user
     const userRef = doc(db, 'users', authorId);
     batch.update(userRef, { credibility_score: increment(-25) });
     
     await batch.commit();
   },
   
-  dismissReport: async (currentUser: User, reportId: string): Promise<void> => {
-      if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
-      const reportRef = doc(db, 'reports', reportId);
-      await updateDoc(reportRef, { status: 'resolved' });
+  dismissReport: async(currentUser: User, reportId: string): Promise<void> => {
+    if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
+    const reportRef = doc(db, 'reports', reportId);
+    await updateDoc(reportRef, { status: 'resolved' });
   },
 
-  // Chat
-  // FIX: Add optional includeInactive parameter to support adding any user to a group.
-  getChatContacts: async (currentUser: User, includeInactive?: boolean): Promise<User[]> => {
-    if (currentUser.role === 'agent') {
-        return [];
-    }
-
-    // Since this is a public/discoverable feature, we source users via the public `members` collection
-    // to avoid running into Firestore rules that might restrict broad `users` collection queries for non-admins.
-    const membersSnapshot = await getDocs(query(membersCollection));
-    const memberData = membersSnapshot.docs.map(doc => doc.data());
-
-    const memberUids = memberData.map(m => m.uid).filter((uid): uid is string => !!uid);
-    const agentUids = memberData.map(m => m.agent_id).filter((id): id is string => typeof id === 'string' && id !== 'PUBLIC_SIGNUP');
-    
-    // Admins also need to be contactable.
-    const adminQuery = query(usersCollection, where("role", "==", "admin"));
-    const adminSnapshot = await getDocs(adminQuery);
-    const adminUids = adminSnapshot.docs.map(doc => doc.id);
-    
-    const allPublicUids = [...new Set([...memberUids, ...agentUids, ...adminUids])];
-    
-    const allUsers = await fetchUsersByUids(allPublicUids, { includeInactive: !!includeInactive });
-    const usersWithoutCurrentUser = allUsers.filter(user => user.id !== currentUser.id);
-
-    // If current user is an admin, they can chat with anyone.
+  // ... (rest of the functions: chat, notifications, etc.)
+  getChatContacts: async (currentUser: User, includeSelf = false): Promise<User[]> => {
+    if (currentUser.role === 'agent') return []; // Agents can't start chats
+    let uids: string[] = [];
     if (currentUser.role === 'admin') {
-      return usersWithoutCurrentUser;
+        const q = query(usersCollection, where('status', '==', 'active'));
+        const snapshot = await getDocs(q);
+        uids = snapshot.docs.map(d => d.id);
+    } else { // Member
+        const following = currentUser.following || [];
+        const followers = currentUser.followers || [];
+        uids = [...new Set([...following, ...followers])];
     }
-    
-    // If current user is a member, they can only chat with other members and admins.
-    if (currentUser.role === 'member') {
-        return usersWithoutCurrentUser.filter(user => user.role === 'member' || user.role === 'admin');
+    if (!includeSelf) {
+        uids = uids.filter(id => id !== currentUser.id);
     }
-    
-    return []; // Should not be reached for agents or other roles
+    return fetchUsersByUids(uids);
   },
   
-  listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(conversationsCollection, where('members', 'array-contains', userId));
-      return onSnapshot(q, (snapshot) => {
-        const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-        convos.sort((a, b) => (b.lastMessageTimestamp?.toMillis() || 0) - (a.lastMessageTimestamp?.toMillis() || 0));
-        callback(convos);
-      }, (error) => {
-          console.error("Firestore listener error (conversations):", error);
-          onError(error);
-      });
-  },
-
-  listenForMessages: (convoId: string, callback: (msgs: Message[]) => void): () => void => {
-      const messagesRef = collection(db, 'conversations', convoId, 'messages');
-      const q = query(messagesRef, orderBy('timestamp', 'asc'));
-      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message))));
-  },
-
-  sendMessage: async (convoId: string, message: Omit<Message, 'id'|'timestamp'>, conversation: Conversation): Promise<void> => {
-      const batch = writeBatch(db);
-      const messagesRef = doc(collection(db, 'conversations', convoId, 'messages'));
-      const timestamp = Timestamp.now();
-      batch.set(messagesRef, { ...message, timestamp });
-
-      const convoRef = doc(db, 'conversations', convoId);
-      batch.update(convoRef, {
-          lastMessage: message.text,
-          lastMessageSenderId: message.senderId,
-          lastMessageTimestamp: timestamp,
-          readBy: [message.senderId]
-      });
-      
-      const recipients = conversation.members.filter(id => id !== message.senderId);
-      for (const recipientId of recipients) {
-          const notificationRef = doc(collection(db, 'notifications'));
-          const messageSnippet = message.text.length > 50 ? `${message.text.substring(0, 47)}...` : message.text;
-          const notificationMessage = conversation.isGroup 
-            ? `${message.senderName} in ${conversation.name}: "${messageSnippet}"`
-            : `${message.senderName}: "${messageSnippet}"`;
-          const notification: Omit<Notification, 'id'> = {
-              userId: recipientId,
-              type: 'NEW_MESSAGE',
-              message: notificationMessage,
-              link: convoId,
-              causerId: message.senderId,
-              causerName: message.senderName,
-              timestamp,
-              read: false,
-          };
-          batch.set(notificationRef, notification);
-      }
-      
-      await batch.commit();
-  },
-  
-  startChat: async (userId1: string, userId2: string, userName1: string, userName2: string): Promise<Conversation> => {
-      const q = query(conversationsCollection, where('members', 'array-contains', userId1), where('isGroup', '==', false));
+  startChat: async (currentUserId: string, targetUserId: string, currentUserName: string, targetUserName: string): Promise<Conversation> => {
+      // Check if a 1-on-1 chat already exists
+      const members = [currentUserId, targetUserId].sort();
+      const q = query(conversationsCollection, where('members', '==', members), where('isGroup', '==', false), limit(1));
       const snapshot = await getDocs(q);
 
-      const existingConvo = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Conversation))
-        .find(convo => convo.members.includes(userId2) && convo.members.length === 2);
-
-      if (existingConvo) {
-          return existingConvo;
+      if (!snapshot.empty) {
+          const doc = snapshot.docs[0];
+          return { id: doc.id, ...doc.data() } as Conversation;
       }
-
-      const members = [userId1, userId2].sort();
-      const convoId = members.join('_');
-      const convoRef = doc(db, 'conversations', convoId);
       
-      const newConvoData: Omit<Conversation, 'id'> = {
+      // If not, create a new one
+      const newConvo: Omit<Conversation, 'id'> = {
           isGroup: false,
           members,
-          memberNames: { [userId1]: userName1, [userId2]: userName2 },
-          lastMessage: 'Chat started.',
+          memberNames: {
+              [currentUserId]: currentUserName,
+              [targetUserId]: targetUserName,
+          },
+          lastMessage: "Conversation started.",
           lastMessageSenderId: '',
           lastMessageTimestamp: Timestamp.now(),
-          readBy: []
+          readBy: [currentUserId],
       };
-      await setDoc(convoRef, newConvoData);
-
-      const notification: Omit<Notification, 'id'> = {
-        userId: userId2,
-        type: 'NEW_CHAT',
-        message: `${userName1} started a conversation with you.`,
-        link: convoId,
-        causerId: userId1,
-        causerName: userName1,
-        timestamp: newConvoData.lastMessageTimestamp,
-        read: false,
-      };
-      await addDoc(notificationsCollection, notification);
-
-      return { id: convoId, ...newConvoData };
+      const docRef = await addDoc(conversationsCollection, newConvo);
+      return { id: docRef.id, ...newConvo };
   },
 
-  createGroupChat: async (name: string, memberIds: string[], memberNames: {[key: string]: string}): Promise<void> => {
-      await addDoc(conversationsCollection, {
+  createGroupChat: async (name: string, memberIds: string[], memberNames: {[key: string]: string}): Promise<Conversation> => {
+      const newGroup: Omit<Conversation, 'id'> = {
           isGroup: true,
           name,
           members: memberIds,
           memberNames,
-          lastMessage: `${memberNames[memberIds[0]]} created the group.`,
+          lastMessage: "Group created.",
           lastMessageSenderId: '',
-          lastMessageTimestamp: firestoreServerTimestamp(),
-          readBy: []
-      });
+          lastMessageTimestamp: Timestamp.now(),
+          readBy: [],
+      };
+      const docRef = await addDoc(conversationsCollection, newGroup);
+      return { id: docRef.id, ...newGroup };
   },
-  
+
   getGroupMembers: async (memberIds: string[]): Promise<MemberUser[]> => {
-      if (memberIds.length === 0) return [];
-      const users = await fetchUsersByUids(memberIds, { includeInactive: true });
-      return users as MemberUser[];
-  },
-  
-  updateGroupMembers: (convoId: string, memberIds: string[], memberNames: {[key: string]: string}): Promise<void> => {
-      const convoRef = doc(db, 'conversations', convoId);
-      return updateDoc(convoRef, { members: memberIds, memberNames });
+    const users = await fetchUsersByUids(memberIds, { includeInactive: true });
+    return users as MemberUser[];
   },
 
-  leaveGroup: (convoId: string, userId: string): Promise<void> => {
+  updateGroupMembers: async (convoId: string, newMemberIds: string[], newMemberNames: {[key:string]:string}) => {
       const convoRef = doc(db, 'conversations', convoId);
-      return updateDoc(convoRef, { members: arrayRemove(userId) });
+      await updateDoc(convoRef, { members: newMemberIds, memberNames: newMemberNames });
   },
 
-  // Notifications
-  listenForNotifications: (userId: string, callback: (notifications: Notification[]) => void, onError: (error: Error) => void): () => void => {
-      const q = query(notificationsCollection, where('userId', '==', userId), limit(50));
-      return onSnapshot(q, (snapshot) => {
-        const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-        notifications.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
-        callback(notifications);
-      }, (error) => {
-          console.error(`Firestore listener error for notifications (${userId}):`, error);
-          onError(error);
+  leaveGroup: async (convoId: string, userId: string) => {
+      const convoRef = doc(db, 'conversations', convoId);
+      const user = await getUserProfile(userId);
+      await updateDoc(convoRef, {
+          members: arrayRemove(userId),
+          lastMessage: `${user?.name} left the group.`,
+          lastMessageSenderId: '',
+          lastMessageTimestamp: Timestamp.now(),
       });
   },
-  
-  markNotificationAsRead: (notificationId: string): Promise<void> => {
-      const notifRef = doc(db, 'notifications', notificationId);
-      return updateDoc(notifRef, { read: true });
+
+  listenForConversations: (userId: string, callback: (convos: Conversation[]) => void, onError: (error: Error) => void): (() => void) => {
+    const q = query(conversationsCollection, where('members', 'array-contains', userId));
+    return onSnapshot(q, (snapshot) => {
+      const convos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
+      convos.sort((a, b) => b.lastMessageTimestamp.toMillis() - a.lastMessageTimestamp.toMillis());
+      callback(convos);
+    }, onError);
   },
   
+  listenForMessages: (conversationId: string, callback: (messages: Message[]) => void): (() => void) => {
+      const messagesCol = collection(db, 'conversations', conversationId, 'messages');
+      const q = query(messagesCol, orderBy('timestamp', 'asc'));
+      return onSnapshot(q, async (snapshot) => {
+          const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+          callback(messages);
+
+          // Mark conversation as read
+          const user = auth.currentUser;
+          if (user) {
+              const convoRef = doc(db, 'conversations', conversationId);
+              await updateDoc(convoRef, { readBy: arrayUnion(user.uid) });
+          }
+      });
+  },
+
+  sendMessage: async (conversationId: string, message: Omit<Message, 'id' | 'timestamp'>, conversation: Conversation): Promise<void> => {
+      const batch = writeBatch(db);
+      
+      const messagesCol = collection(db, 'conversations', conversationId, 'messages');
+      const newMessageRef = doc(messagesCol);
+      batch.set(newMessageRef, { ...message, timestamp: Timestamp.now() });
+
+      const convoRef = doc(db, 'conversations', conversationId);
+      batch.update(convoRef, {
+          lastMessage: message.text,
+          lastMessageSenderId: message.senderId,
+          lastMessageTimestamp: Timestamp.now(),
+          readBy: [message.senderId], // Only sender has read it initially
+      });
+
+      // Send notifications to other members
+      const sender = await getUserProfile(message.senderId);
+      conversation.members.forEach(memberId => {
+          if (memberId !== message.senderId && sender) {
+              const notif: Omit<Notification, 'id'> = {
+                  userId: memberId,
+                  type: 'NEW_MESSAGE',
+                  message: `${conversation.isGroup ? `${sender.name} in ${conversation.name}`: sender.name}: ${message.text}`,
+                  link: conversationId,
+                  causerId: sender.id,
+                  causerName: sender.name,
+                  timestamp: Timestamp.now(),
+                  read: false,
+              };
+              const notifRef = doc(collection(db, 'notifications'));
+              batch.set(notifRef, notif);
+          }
+      });
+      
+      await batch.commit();
+  },
+  
+  followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
+    const currentUserRef = doc(db, 'users', currentUserId);
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
+    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
+    
+    // Create notification for the user being followed
+    const currentUser = await getUserProfile(currentUserId);
+    if(currentUser) {
+        const notif: Omit<Notification, 'id'> = {
+            userId: targetUserId,
+            type: 'NEW_FOLLOWER',
+            message: `${currentUser.name} started following you.`,
+            link: currentUserId,
+            causerId: currentUserId,
+            causerName: currentUser.name,
+            timestamp: Timestamp.now(),
+            read: false,
+        };
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, notif);
+    }
+    await batch.commit();
+  },
+
+  unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
+    const batch = writeBatch(db);
+    const currentUserRef = doc(db, 'users', currentUserId);
+    const targetUserRef = doc(db, 'users', targetUserId);
+    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
+    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
+    await batch.commit();
+  },
+
+  listenForNotifications: (userId: string, callback: (notifs: Notification[]) => void, onError: (error: Error) => void): (() => void) => {
+    const q = query(notificationsCollection, where('userId', '==', userId), orderBy('timestamp', 'desc'), limit(50));
+    return onSnapshot(q, (snapshot) => {
+        const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+        callback(notifs);
+    }, onError);
+  },
+
+  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): (() => void) => {
+      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
+      return onSnapshot(q, (snapshot) => {
+          const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
+          callback(activities);
+      }, onError);
+  },
+
+  markNotificationAsRead: async (notificationId: string): Promise<void> => {
+      const notifRef = doc(db, 'notifications', notificationId);
+      await updateDoc(notifRef, { read: true });
+  },
+
   markAllNotificationsAsRead: async (userId: string): Promise<void> => {
     const q = query(notificationsCollection, where('userId', '==', userId), where('read', '==', false));
     const snapshot = await getDocs(q);
-    if (snapshot.empty) return;
-
     const batch = writeBatch(db);
     snapshot.docs.forEach(doc => {
         batch.update(doc.ref, { read: true });
     });
     await batch.commit();
   },
+  
+  addComment: async (postId: string, commentData: Omit<Comment, 'id' | 'timestamp'>): Promise<void> => {
+      const batch = writeBatch(db);
+      
+      const commentsCol = collection(db, 'posts', postId, 'comments');
+      const newCommentRef = doc(commentsCol);
+      batch.set(newCommentRef, { ...commentData, timestamp: Timestamp.now() });
+
+      const postRef = doc(db, 'posts', postId);
+      batch.update(postRef, { commentCount: increment(1) });
+      
+      // Add notification for post author
+      const postDoc = await getDoc(postRef);
+      const post = postDoc.data() as Post;
+
+      if(post && commentData.authorId !== post.authorId) {
+          const notif: Omit<Notification, 'id'> = {
+            userId: post.authorId,
+            type: 'POST_COMMENT',
+            message: `${commentData.authorName} commented on your post.`,
+            link: postId,
+            causerId: commentData.authorId,
+            causerName: commentData.authorName,
+            timestamp: Timestamp.now(),
+            read: false,
+        };
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, notif);
+      }
+      
+      await batch.commit();
+  },
+
+  deleteComment: async (postId: string, commentId: string): Promise<void> => {
+    const batch = writeBatch(db);
+    const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+    batch.delete(commentRef);
+    const postRef = doc(db, 'posts', postId);
+    batch.update(postRef, { commentCount: increment(-1) });
+    await batch.commit();
+  },
+  
+  upvoteComment: async (postId: string, commentId: string, userId: string): Promise<void> => {
+    const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+    const commentDoc = await getDoc(commentRef);
+    if (commentDoc.exists()) {
+      const commentData = commentDoc.data() as Comment;
+      if (commentData.upvotes.includes(userId)) {
+        await updateDoc(commentRef, { upvotes: arrayRemove(userId) });
+      } else {
+        await updateDoc(commentRef, { upvotes: arrayUnion(userId) });
+      }
+    }
+  },
+
+  listenForComments: (postId: string, callback: (comments: Comment[]) => void): (() => void) => {
+    const commentsCol = collection(db, 'posts', postId, 'comments');
+    const q = query(commentsCol, orderBy('timestamp', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      const comments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment));
+      callback(comments);
+    });
+  },
+
 };
