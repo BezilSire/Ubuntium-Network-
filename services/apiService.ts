@@ -191,9 +191,8 @@ export const api = {
     // Securely build a list of users by looking at recent posters to avoid broad, permission-denied queries on 'users' or 'members'.
     const q = query(postsCollection, orderBy("date", "desc"), limit(500));
     const postsSnapshot = await getDocs(q);
-    // @ts-ignore
-    // FIX: Using a more robust type guard and Array.from to prevent type inference issues.
-    const authorUids = Array.from(new Set(postsSnapshot.docs.map(doc => doc.data().authorId).filter((id): id is string => typeof id === 'string' && !!id)));
+    // FIX: Added explicit string[] type to fix incorrect type inference.
+    const authorUids: string[] = Array.from(new Set(postsSnapshot.docs.map(doc => doc.data().authorId).filter((id): id is string => typeof id === 'string' && !!id)));
     
     // This will only find active users by default, which is correct for a search context.
     return await fetchUsersByUids(authorUids);
@@ -507,61 +506,61 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
+    // Query by the most selective field first to reduce documents read.
     const q = query(
         activityFeedCollection, 
         where("type", "==", "NEW_MEMBER"), 
-        where("causerCircle", "==", circle),
         orderBy("timestamp", "desc"),
-        limit(12)
+        limit(150) // Fetch a larger pool to filter from
     );
     const snapshot = await getDocs(q);
-    const memberUids = snapshot.docs
-        .map(doc => doc.data().causerId)
+    const activities = snapshot.docs
+        .map(doc => doc.data() as Activity)
+        .filter(activity => activity.causerCircle === circle); // Client-side filter for circle
+
+    const memberUids = activities.slice(0, 12)
+        .map(activity => activity.causerId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
     if (memberUids.length === 0) return [];
     
-    // @ts-ignore
-    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
-    return await fetchUsersByUids(Array.from(new Set(memberUids)));
+    const uniqueUids: string[] = Array.from(new Set(memberUids));
+    return await fetchUsersByUids(uniqueUids);
   },
 
   getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
     const q = query(
         postsCollection, 
         where("authorCircle", "==", circle),
-        orderBy("date", "desc"),
-        limit(200) // Fetch a decent number of posts to find unique authors
+        limit(300) // Fetch more to sort and find unique authors
     );
     const snapshot = await getDocs(q);
-    const authorUids = snapshot.docs
-        .map(doc => doc.data().authorId)
+    const posts = snapshot.docs.map(doc => doc.data() as Post);
+    posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const authorUids = posts
+        .map(post => post.authorId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
     if (authorUids.length === 0) return [];
 
-    // @ts-ignore
-    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
-    const uniqueUids = Array.from(new Set(authorUids));
+    const uniqueUids: string[] = Array.from(new Set(authorUids));
     const users = await fetchUsersByUids(uniqueUids);
     return users.slice(0, 50); // Return up to 50 users from the circle
   },
   
   exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
-    const constraints: any[] = [
+    const q = query(
+        postsCollection,
         orderBy("date", "desc"),
         limit(300) // Get a large pool of recent posts
-    ];
-
-    if (currentUserCircle) {
-        constraints.unshift(where("authorCircle", "!=", currentUserCircle));
-    }
-
-    const q = query(postsCollection, ...constraints);
+    );
     const snapshot = await getDocs(q);
-    
-    let memberUids = snapshot.docs
-        .map(doc => doc.data().authorId)
+    const posts = snapshot.docs.map(doc => doc.data() as Post);
+
+    let memberUids = posts
+        .filter(post => currentUserCircle ? post.authorCircle !== currentUserCircle : true) // Client-side filter
+        .map(post => post.authorId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
     // Fallback if no one is found outside the circle (or user has no circle)
@@ -571,9 +570,7 @@ export const api = {
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
     }
     
-    // @ts-ignore
-    // FIX: Using Array.from(new Set(...)) to ensure correct type inference.
-    const uniqueUids = Array.from(new Set(memberUids));
+    const uniqueUids: string[] = Array.from(new Set(memberUids));
     if (uniqueUids.length === 0) return [];
 
     const users = await fetchUsersByUids(uniqueUids);
@@ -912,12 +909,15 @@ export const api = {
   startChat: async (currentUserId: string, targetUserId: string, currentUserName: string, targetUserName: string): Promise<Conversation> => {
       // Check if a 1-on-1 chat already exists
       const members = [currentUserId, targetUserId].sort();
-      const q = query(conversationsCollection, where('members', '==', members), where('isGroup', '==', false), limit(1));
+      // Query only by members array to avoid composite index
+      const q = query(conversationsCollection, where('members', '==', members), limit(5));
       const snapshot = await getDocs(q);
 
-      if (!snapshot.empty) {
-          const doc = snapshot.docs[0];
-          return { id: doc.id, ...doc.data() } as Conversation;
+      // Find the 1-on-1 chat from the results on the client
+      const existingConvoDoc = snapshot.docs.find(doc => doc.data().isGroup === false);
+
+      if (existingConvoDoc) {
+          return { id: existingConvoDoc.id, ...existingConvoDoc.data() } as Conversation;
       }
       
       // If not, create a new one
@@ -1071,9 +1071,12 @@ export const api = {
   },
 
   listenForNotifications: (userId: string, callback: (notifs: Notification[]) => void, onError: (error: Error) => void): (() => void) => {
-    const q = query(notificationsCollection, where('userId', '==', userId), orderBy('timestamp', 'desc'), limit(50));
+    // Remove orderBy to avoid needing a composite index. Sorting will be done client-side.
+    const q = query(notificationsCollection, where('userId', '==', userId), limit(50));
     return onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+        // Sort by timestamp descending on the client
+        notifs.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
         callback(notifs);
     }, onError);
   },
@@ -1092,11 +1095,15 @@ export const api = {
   },
 
   markAllNotificationsAsRead: async (userId: string): Promise<void> => {
-    const q = query(notificationsCollection, where('userId', '==', userId), where('read', '==', false));
+    // Query only by userId to avoid composite index.
+    const q = query(notificationsCollection, where('userId', '==', userId), limit(100));
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);
     snapshot.docs.forEach(doc => {
-        batch.update(doc.ref, { read: true });
+        // Filter for unread notifications on the client before adding to batch.
+        if (doc.data().read === false) {
+            batch.update(doc.ref, { read: true });
+        }
     });
     await batch.commit();
   },
