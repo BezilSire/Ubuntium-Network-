@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Member, User, Post } from '../types';
 import { api } from '../services/apiService';
@@ -6,6 +7,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 import { PostsFeed } from './PostsFeed';
 import { PostTypeFilter } from './PostTypeFilter';
+import { HelpCircleIcon } from './icons/HelpCircleIcon';
 
 interface MemberProfileProps {
   memberId: string;
@@ -246,6 +248,21 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                     <DetailItem label="National ID" value={member.national_id} isMono />
                 </dl>
             </div>
+
+            {isOwnProfile && (
+                <div className="pt-6 border-t border-slate-700">
+                    <h3 className="text-lg font-medium text-gray-200 flex items-center">
+                        <HelpCircleIcon className="h-5 w-5 mr-2" />
+                        Help & Support
+                    </h3>
+                    <div className="mt-4 flex flex-col sm:flex-row justify-between items-center bg-slate-900/50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-300">Have questions or need assistance? Contact our support team.</p>
+                        <a href="mailto:support@globalcommons.app" className="mt-3 sm:mt-0 w-full sm:w-auto inline-flex justify-center py-2 px-4 rounded-md text-white bg-slate-600 hover:bg-slate-500">
+                            Contact Support
+                        </a>
+                    </div>
+                </div>
+            )}
         </div>
     );
 

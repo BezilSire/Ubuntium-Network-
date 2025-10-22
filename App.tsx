@@ -77,18 +77,21 @@ const App: React.FC = () => {
     // When the user comes online, check if a sync is needed.
     if (isOnline && !hasSyncedOnConnect) {
       addToast("You're back online! Syncing data...", "info");
-      api.processPendingWelcomeMessages().then(count => {
-        if (count > 0) {
-          addToast(`Successfully generated ${count} welcome message(s) for newly synced members.`, 'success');
-        }
-      });
+      // This is a background task that should only be run by admins to avoid permission errors for other users.
+      if (currentUser?.role === 'admin') {
+        api.processPendingWelcomeMessages().then(count => {
+          if (count > 0) {
+            addToast(`Successfully generated ${count} welcome message(s) for newly synced members.`, 'success');
+          }
+        });
+      }
       // Mark as synced to prevent re-syncing on every online event within the same session.
       setHasSyncedOnConnect(true);
     } else if (!isOnline) {
       // Reset the sync flag when the user goes offline.
       setHasSyncedOnConnect(false);
     }
-  }, [isOnline, hasSyncedOnConnect, addToast]);
+  }, [isOnline, hasSyncedOnConnect, addToast, currentUser]);
 
   const handleSendBroadcast = async (message: string) => {
     if (!currentUser) throw new Error("Not authenticated.");

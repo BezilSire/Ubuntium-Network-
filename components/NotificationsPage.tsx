@@ -62,7 +62,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
         checkLoadingDone();
     });
     
-    const unsubActivities = api.listenForActivity((acts) => {
+    const unsubActivities = api.listenForActivity(user.circle, (acts) => {
       setActivities(acts);
       activityLoaded = true;
       checkLoadingDone();
@@ -77,7 +77,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ user, onNa
       unsubNotifications();
       unsubActivities();
     };
-  }, [user.id, addToast]);
+  }, [user.id, user.circle, addToast]);
 
   const mergedItems = useMemo((): NotificationItem[] => {
     const personal: NotificationItem[] = notifications.map(n => ({ ...n, itemType: 'notification' }));

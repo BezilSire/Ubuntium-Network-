@@ -195,18 +195,18 @@ export const api = {
     (currentUser.following || []).forEach(uid => allUids.add(uid));
     (currentUser.followers || []).forEach(uid => allUids.add(uid));
     
-    // 2. Add users from recent global posts as a fallback/discovery mechanism
+    // 2. Add users from recent global activity as a fallback/discovery mechanism
     try {
-      const q = query(postsCollection, orderBy("date", "desc"), limit(100));
-      const postsSnapshot = await getDocs(q);
-      postsSnapshot.docs.forEach(doc => {
-          const authorId = doc.data().authorId;
-          if (authorId) {
-            allUids.add(authorId);
+      const q = query(activityFeedCollection, orderBy("timestamp", "desc"), limit(50));
+      const activitySnapshot = await getDocs(q);
+      activitySnapshot.docs.forEach(doc => {
+          const causerId = doc.data().causerId;
+          if (causerId) {
+            allUids.add(causerId);
           }
       });
     } catch (error) {
-        console.warn("Could not fetch recent posts for search suggestions, possibly due to security rules. User discovery may be limited.", error);
+        console.warn("Could not fetch recent activity for search suggestions. User discovery may be limited.", error);
     }
     
     // 3. Remove self from the list
@@ -532,19 +532,20 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    // Query without orderBy to avoid needing a composite index.
+    // This query is now more specific, filtering by type and circle on the server.
+    // This is more efficient and less likely to violate security rules.
+    // It will require a composite index on (type, causerCircle, timestamp desc).
     const q = query(
         activityFeedCollection, 
         where("type", "==", "NEW_MEMBER"), 
-        limit(150) // Fetch a larger pool to filter from
+        where("causerCircle", "==", circle),
+        orderBy("timestamp", "desc"),
+        limit(12)
     );
     const snapshot = await getDocs(q);
-    const activities = snapshot.docs
-        .map(doc => doc.data() as Activity)
-        .filter(activity => activity.causerCircle === circle) // Client-side filter for circle
-        .sort((a,b) => b.timestamp.toMillis() - a.timestamp.toMillis()); // Sort client-side
+    const activities = snapshot.docs.map(doc => doc.data() as Activity);
 
-    const memberUids = activities.slice(0, 12)
+    const memberUids = activities
         .map(activity => activity.causerId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
@@ -576,23 +577,24 @@ export const api = {
   },
   
   exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
+    // Querying the activity feed is more efficient and permission-friendly than scanning all posts.
     const q = query(
-        postsCollection,
-        orderBy("date", "desc"),
-        limit(300) // Get a large pool of recent posts
+        activityFeedCollection,
+        orderBy("timestamp", "desc"),
+        limit(100) // Get a large pool of recent activities
     );
     const snapshot = await getDocs(q);
-    const posts = snapshot.docs.map(doc => doc.data() as Post);
+    const activities = snapshot.docs.map(doc => doc.data() as Activity);
 
-    let memberUids = posts
-        .filter(post => currentUserCircle ? post.authorCircle !== currentUserCircle : true) // Client-side filter
-        .map(post => post.authorId)
+    let memberUids = activities
+        .filter(activity => currentUserCircle ? activity.causerCircle !== currentUserCircle : true) // Client-side filter
+        .map(activity => activity.causerId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
     // Fallback if no one is found outside the circle (or user has no circle)
     if (memberUids.length === 0 && snapshot.docs.length > 0) {
-      memberUids = snapshot.docs
-        .map(doc => doc.data().authorId)
+      memberUids = activities
+        .map(activity => activity.causerId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
     }
     
@@ -743,60 +745,30 @@ export const api = {
     
     const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
 
-    let collectedPosts: Post[] = [];
-    let currentCursor: DocumentSnapshot<DocumentData> | null = lastVisible || null;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 5; // Safety break to prevent infinite loops/excessive reads
-    const FETCH_CHUNK_SIZE = 25; // Fetch more than `limitNum` to increase chance of finding matches
-
-    while (collectedPosts.length < limitNum && attempts < MAX_ATTEMPTS) {
-        attempts++;
-        const constraints: any[] = [orderBy("date", "desc"), limit(FETCH_CHUNK_SIZE)];
-        if (currentCursor) {
-            constraints.push(startAfter(currentCursor));
-        }
-
-        const q = query(postsCollection, ...constraints);
-        const snapshot = await getDocs(q);
-
-        if (snapshot.empty) {
-            break; // No more posts left in the database.
-        }
-
-        for (const doc of snapshot.docs) {
-            // This ensures we have a valid cursor for the next iteration before we start filtering
-            currentCursor = doc; 
-            
-            const post = { id: doc.id, ...doc.data() } as Post;
-            
-            // Determine if the post should be included
-            let shouldInclude = false;
-            if (typeFilter === 'all') {
-                if (allowedInAllFeed.includes(post.type)) {
-                    shouldInclude = true;
-                }
-            } else {
-                if (post.type === typeFilter) {
-                    shouldInclude = true;
-                }
-            }
-            
-            // Add to results if it matches and we still need more posts
-            if (shouldInclude && collectedPosts.length < limitNum) {
-                // Also ensure we don't add duplicates if logic ever gets weird
-                if (!collectedPosts.some(p => p.id === post.id)) {
-                    collectedPosts.push(post);
-                }
-            }
-        }
-        
-        // If the number of docs returned is less than our chunk size, we've hit the end.
-        if (snapshot.docs.length < FETCH_CHUNK_SIZE) {
-            break;
-        }
+    const constraints: any[] = [orderBy("date", "desc")];
+    
+    if (typeFilter !== 'all') {
+      constraints.push(where("type", "==", typeFilter));
+    } else {
+      // For 'all' feed, we only want the public feed types.
+      // 'distress' posts are special and not included here.
+      constraints.push(where("type", "in", allowedInAllFeed));
     }
     
-    return { posts: collectedPosts, lastVisible: currentCursor || null };
+    constraints.push(limit(limitNum));
+    
+    if (lastVisible) {
+      constraints.push(startAfter(lastVisible));
+    }
+    
+    const q = query(postsCollection, ...constraints);
+    const snapshot = await getDocs(q);
+
+    const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+    // Correctly get the last visible document for pagination
+    const newLastVisible = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+
+    return { posts, lastVisible: newLastVisible };
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
@@ -970,14 +942,16 @@ export const api = {
   },
   
   startChat: async (currentUserId: string, targetUserId: string, currentUserName: string, targetUserName: string): Promise<Conversation> => {
-      // Check if a 1-on-1 chat already exists
-      const members = [currentUserId, targetUserId].sort();
-      // Query only by members array to avoid composite index
-      const q = query(conversationsCollection, where('members', '==', members), limit(5));
+      // Query for conversations the current user is a part of. This is secure and efficient.
+      const q = query(conversationsCollection, where('members', 'array-contains', currentUserId));
       const snapshot = await getDocs(q);
 
-      // Find the 1-on-1 chat from the results on the client
-      const existingConvoDoc = snapshot.docs.find(doc => doc.data().isGroup === false);
+      // Filter client-side to find the specific 1-on-1 chat.
+      const existingConvoDoc = snapshot.docs.find(doc => {
+          const data = doc.data();
+          // A 1-on-1 chat is not a group, has exactly two members, and includes the target user.
+          return data.isGroup === false && data.members.length === 2 && data.members.includes(targetUserId);
+      });
 
       if (existingConvoDoc) {
           return { id: existingConvoDoc.id, ...existingConvoDoc.data() } as Conversation;
@@ -986,7 +960,7 @@ export const api = {
       // If not, create a new one
       const newConvo: Omit<Conversation, 'id'> = {
           isGroup: false,
-          members,
+          members: [currentUserId, targetUserId].sort(), // Store sorted for consistency
           memberNames: {
               [currentUserId]: currentUserName,
               [targetUserId]: targetUserName,
@@ -1129,7 +1103,7 @@ export const api = {
     const currentUserRef = doc(db, 'users', currentUserId);
     const targetUserRef = doc(db, 'users', targetUserId);
     batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
-    batch.update(targetUserRef, { followers: arrayRemove(currentUserId) });
+    batch.update(targetUserRef, { followers: arrayRemove(targetUserId) });
     await batch.commit();
   },
 
@@ -1144,8 +1118,15 @@ export const api = {
     }, onError);
   },
 
-  listenForActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): (() => void) => {
-      const q = query(activityFeedCollection, orderBy('timestamp', 'desc'), limit(50));
+  listenForActivity: (circle: string | undefined, callback: (activities: Activity[]) => void, onError: (error: Error) => void): (() => void) => {
+      if (!circle) {
+        // If user has no circle, don't fetch community activity.
+        callback([]);
+        return () => {};
+      }
+      // This query is now scoped to the user's circle, making it more specific
+      // and less likely to violate security rules. It requires an index on (causerCircle, timestamp desc).
+      const q = query(activityFeedCollection, where('causerCircle', '==', circle), orderBy('timestamp', 'desc'), limit(50));
       return onSnapshot(q, (snapshot) => {
           const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
           callback(activities);
