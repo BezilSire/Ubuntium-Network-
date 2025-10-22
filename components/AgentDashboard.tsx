@@ -56,7 +56,26 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
       try {
         setIsLoading(true);
         const agentMembers = await api.getAgentMembers(user);
-        setMembers(agentMembers);
+        
+        // Get UIDs of members who have an associated user account
+        const memberUids = agentMembers.filter(m => m.uid).map(m => m.uid as string);
+
+        if (memberUids.length > 0) {
+            // Fetch the corresponding user profiles to get their status
+            const userProfiles = await api.fetchUsersByUids(memberUids, { includeInactive: true });
+            const userStatusMap = new Map(userProfiles.map(u => [u.id, u.status]));
+
+            // Enrich member data with the user status
+            const enrichedMembers = agentMembers.map(member => {
+                if (member.uid && userStatusMap.has(member.uid)) {
+                    return { ...member, status: userStatusMap.get(member.uid) };
+                }
+                return member; // Return as-is if no user profile (account not activated)
+            });
+            setMembers(enrichedMembers);
+        } else {
+            setMembers(agentMembers); // No members have activated accounts yet
+        }
       } catch (error) {
         addToast('Could not load your members.', 'error');
       } finally {

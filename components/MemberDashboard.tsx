@@ -182,7 +182,7 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
                 </>
             );
         case 'community':
-            return <CommunityPage currentUser={user} onViewProfile={onViewProfile} onUpdateUser={onUpdateUser} />;
+            return <CommunityPage currentUser={user} onViewProfile={onViewProfile} onUpdateUser={onUpdateUser} broadcasts={broadcasts} />;
         case 'connect':
             return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
         case 'notifications':

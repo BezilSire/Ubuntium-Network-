@@ -49,6 +49,7 @@ const reportsCollection = collection(db, 'reports');
 const userReportsCollection = collection(db, 'user_reports');
 const notificationsCollection = collection(db, 'notifications');
 const activityFeedCollection = collection(db, 'activity_feed');
+const PUBLIC_POST_TYPES: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
 
 const getUserProfile = async (uid: string): Promise<User | null> => {
     const userDocRef = doc(db, 'users', uid);
@@ -184,7 +185,9 @@ export const api = {
   },
 
   // User/Profile Management
-  getUserProfile, 
+  getUserProfile,
+  // FIX: Export `fetchUsersByUids` so it can be used by other components.
+  fetchUsersByUids, 
 
   getSearchableUsers: async (currentUser: User): Promise<User[]> => {
     const allUids = new Set<string>();
@@ -736,11 +739,16 @@ export const api = {
   },
 
   fetchPinnedPosts: async (): Promise<Post[]> => {
-    // Query directly for pinned posts instead of scanning the whole collection.
-    const q = query(postsCollection, where("isPinned", "==", true));
+    // Query directly for pinned posts AND filter by public types to avoid permission errors.
+    const q = query(
+      postsCollection, 
+      where("isPinned", "==", true), 
+      where("type", "in", PUBLIC_POST_TYPES)
+    );
     const snapshot = await getDocs(q);
     const posts = snapshot.docs
       .map(doc => ({ id: doc.id, ...doc.data() } as Post));
+    // Sort client-side as we can't order by date with this query without a specific index.
     posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return posts;
   },
@@ -751,8 +759,6 @@ export const api = {
     lastVisible?: DocumentSnapshot<DocumentData>
   ): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
     
-    const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
-
     const constraints: any[] = [orderBy("date", "desc")];
     
     if (typeFilter !== 'all') {
@@ -760,7 +766,7 @@ export const api = {
     } else {
       // For 'all' feed, we only want the public feed types.
       // 'distress' posts are special and not included here.
-      constraints.push(where("type", "in", allowedInAllFeed));
+      constraints.push(where("type", "in", PUBLIC_POST_TYPES));
     }
     
     constraints.push(limit(limitNum));
@@ -780,12 +786,17 @@ export const api = {
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
-      // Removed orderBy from query to prevent needing a composite index
-      const q = query(postsCollection, where("authorId", "==", authorId), limit(50));
+      // Query for public post types by a specific author to avoid permission errors on distress posts.
+      const q = query(
+        postsCollection, 
+        where("authorId", "==", authorId), 
+        where("type", "in", PUBLIC_POST_TYPES),
+        orderBy("date", "desc"),
+        limit(50)
+      );
+      
       return onSnapshot(q, (snapshot) => {
           const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-          // Sort client-side
-          posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(posts);
       }, onError);
   },
@@ -795,28 +806,45 @@ export const api = {
           callback([]);
           return () => {};
       }
+      
+      // Firestore 'in' queries are limited to 30 items
       const chunks: string[][] = [];
       for (let i = 0; i < followingIds.length; i += 30) {
         chunks.push(followingIds.slice(i, i + 30));
       }
       
       const postMap = new Map<string, Post>();
+      const allUnsubscribers: (() => void)[] = [];
 
-      const unsubscribers = chunks.map(chunk => {
-        // Removed orderBy from query to prevent needing a composite index
-        const q = query(postsCollection, where("authorId", "in", chunk), limit(50));
-        return onSnapshot(q, (snapshot) => {
-            snapshot.docs.forEach(doc => {
-              postMap.set(doc.id, { id: doc.id, ...doc.data() } as Post);
-            });
-            const allPosts = Array.from(postMap.values());
-            // This existing client-side sort is now essential
-            allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            callback(allPosts);
-        }, onError);
+      // Since we cannot combine two 'in' clauses (one for authorId, one for type),
+      // we must create separate queries for each post type to respect security rules.
+      chunks.forEach(chunk => {
+        PUBLIC_POST_TYPES.forEach(type => {
+          const q = query(
+            postsCollection, 
+            where("authorId", "in", chunk), 
+            where("type", "==", type),
+            orderBy("date", "desc"),
+            limit(20) // Limit per type to avoid fetching too much data
+          );
+
+          const unsub = onSnapshot(q, (snapshot) => {
+              snapshot.docs.forEach(doc => {
+                postMap.set(doc.id, { id: doc.id, ...doc.data() } as Post);
+              });
+              const allPosts = Array.from(postMap.values());
+              allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              callback(allPosts);
+          }, (error) => {
+            console.error(`Error on following feed listener for type '${type}':`, error);
+            onError(error);
+          });
+
+          allUnsubscribers.push(unsub);
+        });
       });
       
-      return () => unsubscribers.forEach(unsub => unsub());
+      return () => allUnsubscribers.forEach(unsub => unsub());
   },
   
   togglePinPost: async (currentUser: User, postId: string, newPinState: boolean): Promise<void> => {

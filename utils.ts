@@ -76,3 +76,56 @@ export const formatTimeAgo = (dateString: string): string => {
   }
   return Math.floor(seconds) + " seconds ago";
 };
+
+// FIX: Rewrote linkify to not use JSX, as this is a .ts file.
+// It now returns a structured array that can be mapped to JSX in a .tsx component.
+export type LinkifyPart = {
+  type: 'text';
+  content: string;
+} | {
+  type: 'link';
+  content: string;
+  href: string;
+};
+
+export const linkify = (text: string): LinkifyPart[] => {
+  if (!text) return [{ type: 'text', content: text || '' }];
+
+  const parts: LinkifyPart[] = [];
+  let lastIndex = 0;
+  
+  // Regex to find URLs (http, https, www)
+  const urlPattern = new RegExp(
+    '((https?:\\/\\/)|(www\\.))' + // Protocol or www.
+    '([a-zA-Z0-9]+([\\-\\.]{1}[a-zA-Z0-9]+)*\\.[a-zA-Z]{2,5})' + // Domain
+    '(:[0-9]{1,5})?(\\/[^\\s]*)?', // Port and Path
+    'gi'
+  );
+
+  let match;
+  while ((match = urlPattern.exec(text)) !== null) {
+    // Add text before the link
+    if (match.index > lastIndex) {
+      parts.push({type: 'text', content: text.substring(lastIndex, match.index)});
+    }
+
+    const url = match[0];
+    // Prepend https:// if the protocol is missing (e.g., www.example.com)
+    const href = url.startsWith('http') ? url : `https://${url}`;
+
+    parts.push({
+        type: 'link',
+        content: url,
+        href,
+    });
+    lastIndex = urlPattern.lastIndex;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push({type: 'text', content: text.substring(lastIndex)});
+  }
+  
+  // If no links were found, just return the original text in an array of one part
+  return parts.length > 0 ? parts : [{ type: 'text', content: text }];
+};

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Post, User, Comment, Activity } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
-import { formatTimeAgo } from '../utils';
+// FIX: Import LinkifyPart type to use with the updated linkify function.
+import { formatTimeAgo, linkify, LinkifyPart } from '../utils';
 import { ThumbsUpIcon } from './icons/ThumbsUpIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { PencilIcon } from './icons/PencilIcon';
@@ -55,7 +56,25 @@ const CommentItem: React.FC<{
                          <button onClick={() => onViewProfile(comment.authorId)} className="font-semibold text-sm text-white hover:underline">{comment.authorName}</button>
                         <p className="text-xs text-gray-500">{formatTimeAgo(comment.timestamp.toDate().toISOString())}</p>
                     </div>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{comment.content}</p>
+                    {/* FIX: Map over the array returned by linkify to render text and links correctly. */}
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{
+                        linkify(comment.content).map((part, index) =>
+                            part.type === 'link' ? (
+                                <a
+                                    key={`comment-link-${comment.id}-${index}`}
+                                    href={part.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-green-400 hover:text-green-300 hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {part.content}
+                                </a>
+                            ) : (
+                                part.content
+                            )
+                        )
+                    }</p>
                 </div>
                 <div className="flex items-center space-x-3 mt-1 pl-2">
                     <button onClick={() => onUpvote(postId, comment.id)} className={`flex items-center space-x-1 text-xs ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}>
@@ -282,7 +301,24 @@ export const PostItem: React.FC<{
             </div>
 
             {/* Content */}
-            {post.content && <p className="text-gray-200 whitespace-pre-wrap">{post.content}</p>}
+            {post.content && <p className="text-gray-200 whitespace-pre-wrap break-words">{
+                linkify(post.content).map((part, index) =>
+                    part.type === 'link' ? (
+                        <a
+                            key={`post-link-${post.id}-${index}`}
+                            href={part.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-400 hover:text-green-300 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {part.content}
+                        </a>
+                    ) : (
+                        part.content
+                    )
+                )
+            }</p>}
 
             {/* Reposted Content */}
             {post.repostedFrom && (
@@ -294,7 +330,24 @@ export const PostItem: React.FC<{
                             <p className="text-xs text-gray-500">{post.repostedFrom.authorCircle} &bull; {formatTimeAgo(post.repostedFrom.date)}</p>
                         </div>
                     </div>
-                    <p className="text-gray-300 text-sm whitespace-pre-wrap">{post.repostedFrom.content}</p>
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap break-words">{
+                        linkify(post.repostedFrom.content).map((part, index) =>
+                            part.type === 'link' ? (
+                                <a
+                                    key={`repost-link-${post.repostedFrom?.postId}-${index}`}
+                                    href={part.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-green-400 hover:text-green-300 hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {part.content}
+                                </a>
+                            ) : (
+                                part.content
+                            )
+                        )
+                    }</p>
                 </div>
             )}
 

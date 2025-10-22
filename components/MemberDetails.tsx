@@ -1,8 +1,8 @@
 import React from 'react';
-import { Member } from '../types';
+import { Member, User } from '../types';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 
-const StatusBadge: React.FC<{ status: 'pending' | 'complete' | 'installment' }> = ({ status }) => {
+const PaymentStatusBadge: React.FC<{ status: Member['payment_status'] }> = ({ status }) => {
   const baseClasses = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize';
   if (status === 'complete') {
     return <span className={`${baseClasses} bg-green-800 text-green-300`}>Complete</span>;
@@ -10,7 +10,25 @@ const StatusBadge: React.FC<{ status: 'pending' | 'complete' | 'installment' }> 
   if (status === 'installment') {
     return <span className={`${baseClasses} bg-blue-800 text-blue-300`}>Installment</span>;
   }
+  if (status === 'pending_verification') {
+    return <span className={`${baseClasses} bg-purple-800 text-purple-300`}>Pending Verification</span>;
+  }
+  if (status === 'rejected') {
+    return <span className={`${baseClasses} bg-red-800 text-red-300`}>Rejected</span>;
+  }
   return <span className={`${baseClasses} bg-yellow-800 text-yellow-300`}>Pending</span>;
+};
+
+const UserStatusBadge: React.FC<{ status: User['status'] | undefined }> = ({ status }) => {
+    if (!status) return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize bg-slate-700 text-slate-300">Not Activated</span>;
+    const baseClasses = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize';
+    switch (status) {
+        case 'active': return <span className={`${baseClasses} bg-green-800 text-green-300`}>Active</span>;
+        case 'pending': return <span className={`${baseClasses} bg-yellow-800 text-yellow-300`}>Pending</span>;
+        case 'suspended': return <span className={`${baseClasses} bg-orange-800 text-orange-300`}>Suspended</span>;
+        case 'ousted': return <span className={`${baseClasses} bg-red-800 text-red-300`}>Ousted</span>;
+        default: return null;
+    }
 };
 
 interface MemberDetailsProps {
@@ -32,8 +50,9 @@ export const MemberDetails: React.FC<MemberDetailsProps> = ({ member, onBack }) 
                 <h2 className="text-2xl font-bold text-white">{member.full_name}</h2>
                 <p className="text-sm text-gray-400">{member.email}</p>
             </div>
-            <div className="mt-3 sm:mt-0">
-                <StatusBadge status={member.payment_status} />
+            <div className="mt-3 sm:mt-0 flex items-center space-x-4">
+                <PaymentStatusBadge status={member.payment_status} />
+                <UserStatusBadge status={member.status} />
             </div>
         </div>
 
