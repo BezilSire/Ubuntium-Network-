@@ -187,24 +187,32 @@ export const api = {
   getUserProfile, 
 
   getSearchableUsers: async (currentUser: User): Promise<User[]> => {
-    // Securely build a list of users from multiple sources to improve discovery
-    // and provide fallbacks in case of restrictive security rules.
     const allUids = new Set<string>();
 
     // 1. Add direct connections (following/followers)
     (currentUser.following || []).forEach(uid => allUids.add(uid));
     (currentUser.followers || []).forEach(uid => allUids.add(uid));
     
-    // 2. Add users from recent global activity as a fallback/discovery mechanism
+    // 2. Add users from activity as a discovery mechanism
     try {
-      const q = query(activityFeedCollection, orderBy("timestamp", "desc"), limit(50));
-      const activitySnapshot = await getDocs(q);
-      activitySnapshot.docs.forEach(doc => {
-          const causerId = doc.data().causerId;
-          if (causerId) {
-            allUids.add(causerId);
-          }
-      });
+      let q;
+      // For non-admins, scope queries to their circle to be more permission-friendly.
+      // For all roles, remove orderBy to avoid needing a composite index.
+      if (currentUser.role === 'admin') {
+        q = query(activityFeedCollection, limit(100)); // Admins can get a broader set of recent users
+      } else if (currentUser.circle) {
+        q = query(activityFeedCollection, where('causerCircle', '==', currentUser.circle), limit(50));
+      }
+      
+      if (q) {
+          const activitySnapshot = await getDocs(q);
+          activitySnapshot.docs.forEach(doc => {
+              const causerId = doc.data().causerId;
+              if (causerId) {
+                allUids.add(causerId);
+              }
+          });
+      }
     } catch (error) {
         console.warn("Could not fetch recent activity for search suggestions. User discovery may be limited.", error);
     }
@@ -215,7 +223,6 @@ export const api = {
     const uniqueUids = Array.from(allUids);
     if (uniqueUids.length === 0) return [];
 
-    // This will only find active users by default
     return await fetchUsersByUids(uniqueUids);
   },
 
@@ -532,20 +539,21 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    // This query is now more specific, filtering by type and circle on the server.
-    // This is more efficient and less likely to violate security rules.
-    // It will require a composite index on (type, causerCircle, timestamp desc).
+    // Query without orderBy to avoid needing a composite index.
     const q = query(
         activityFeedCollection, 
         where("type", "==", "NEW_MEMBER"), 
         where("causerCircle", "==", circle),
-        orderBy("timestamp", "desc"),
-        limit(12)
+        limit(50) // Fetch more to sort client-side and get the latest
     );
     const snapshot = await getDocs(q);
     const activities = snapshot.docs.map(doc => doc.data() as Activity);
 
+    // Sort client-side to get the newest members
+    activities.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
+
     const memberUids = activities
+        .slice(0, 12) // Take the latest 12 after sorting
         .map(activity => activity.causerId)
         .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
 
@@ -578,10 +586,10 @@ export const api = {
   
   exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
     // Querying the activity feed is more efficient and permission-friendly than scanning all posts.
+    // Removed orderBy to prevent index errors and broad-scan permission errors. Order isn't critical for exploration.
     const q = query(
         activityFeedCollection,
-        orderBy("timestamp", "desc"),
-        limit(100) // Get a large pool of recent activities
+        limit(100) // Get a large pool of activities
     );
     const snapshot = await getDocs(q);
     const activities = snapshot.docs.map(doc => doc.data() as Activity);
@@ -1124,11 +1132,23 @@ export const api = {
         callback([]);
         return () => {};
       }
-      // This query is now scoped to the user's circle, making it more specific
-      // and less likely to violate security rules. It requires an index on (causerCircle, timestamp desc).
-      const q = query(activityFeedCollection, where('causerCircle', '==', circle), orderBy('timestamp', 'desc'), limit(50));
+      // Query without orderBy to avoid needing a composite index.
+      const q = query(activityFeedCollection, where('causerCircle', '==', circle), limit(50));
       return onSnapshot(q, (snapshot) => {
           const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
+          // Sort client-side since we can't use a composite index.
+          activities.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
+          callback(activities);
+      }, onError);
+  },
+  
+  listenForAllNewMemberActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): (() => void) => {
+      // Query without orderBy to avoid needing a composite index.
+      const q = query(activityFeedCollection, where('type', '==', 'NEW_MEMBER'), limit(20));
+      return onSnapshot(q, (snapshot) => {
+          const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
+          // Sort client-side since we can't use a composite index on timestamp.
+          activities.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
           callback(activities);
       }, onError);
   },

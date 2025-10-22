@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Post, User, Comment } from '../types';
+import { Post, User, Comment, Activity } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { formatTimeAgo } from '../utils';
@@ -23,6 +23,7 @@ import { SendIcon } from './icons/SendIcon';
 import { Timestamp, DocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { PinIcon } from './icons/PinIcon';
 import { LoaderIcon } from './icons/LoaderIcon';
+import { ActivityItem } from './ActivityItem';
 
 const postTypeTooltips: Record<string, string> = {
     proposal: "This is a proposal for a new idea, project, or policy for the commons.",
@@ -360,6 +361,7 @@ const POSTS_PER_PAGE = 10;
 
 export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', typeFilter = 'all', authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastVisible, setLastVisible] = useState<DocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -379,12 +381,10 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     try {
       const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
         api.fetchPinnedPosts(),
-        // FIX: Cast typeFilter to the correct type to resolve the TypeScript error.
         api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all')
       ]);
       
       let pinnedPosts = pinnedPostsResult;
-      // Client-side filter for pinned posts, as they are few
       if (typeFilter !== 'all') {
         pinnedPosts = pinnedPosts.filter(p => p.type === typeFilter);
       }
@@ -409,7 +409,6 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     if (!hasMore || isLoadingMore || !lastVisible) return;
     setIsLoadingMore(true);
     try {
-      // FIX: Cast typeFilter to the correct type to resolve the TypeScript error.
       const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all', lastVisible);
       
       const existingIds = new Set(posts.map(p => p.id));
@@ -435,6 +434,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
         setIsLoading(false);
     }
 
+    let unsubActivities = () => {};
+
     if (authorId) {
         setIsLoading(true);
         const unsub = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
@@ -454,30 +455,34 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     }
     else { // 'all' feed with pagination
         fetchInitialPosts();
+        unsubActivities = api.listenForAllNewMemberActivity((acts) => {
+            setActivities(acts);
+        }, onError);
     }
     
-    return () => {}; // No cleanup needed for async fetches
+    return () => { unsubActivities(); };
   }, [feedType, authorId, user.following, addToast, fetchInitialPosts]);
   
-  const filteredPosts = useMemo(() => {
-    // For 'all' feed (paginated), the API has already filtered.
-    // So we only apply client-side filtering for listener-based feeds.
-    if (typeFilter === 'all' || feedType === 'all') {
-      return posts;
-    }
-    return posts.filter(p => p.type === typeFilter);
-  }, [posts, typeFilter, feedType]);
+  const mergedAndSortedItems = useMemo(() => {
+    const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
+    const typedActivities = activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() }));
+    
+    const allItems: (typeof typedPosts[0] | typeof typedActivities[0])[] = [...typedPosts, ...typedActivities];
 
-  const sortedPosts = useMemo(() => {
-    return [...filteredPosts].sort((a, b) => {
-        const aIsPinned = a.isPinned ?? false;
-        const bIsPinned = b.isPinned ?? false;
+    allItems.sort((a, b) => {
+        const aIsPinned = (a.itemType === 'post' && a.isPinned) ?? false;
+        const bIsPinned = (b.itemType === 'post' && b.isPinned) ?? false;
+        
         if (aIsPinned && !bIsPinned) return -1;
         if (!aIsPinned && bIsPinned) return 1;
-        // Dates are already sorted by the API/listener query
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
+        
+        return b.sortDate.getTime() - a.sortDate.getTime();
     });
-  }, [filteredPosts]);
+
+    const uniqueItems = Array.from(new Map(allItems.map(item => [`${item.itemType}-${item.id}`, item])).values());
+    
+    return uniqueItems;
+  }, [posts, activities]);
 
   const handleUpvote = async (postId: string) => {
     try {
@@ -598,13 +603,14 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
         <div className="flex justify-center items-center py-12">
             <LoaderIcon className="h-8 w-8 animate-spin text-green-500" />
         </div>
-      ) : sortedPosts.length > 0 ? (
+      ) : mergedAndSortedItems.length > 0 ? (
         <>
             <div className="space-y-4">
-            {sortedPosts.map(item => (
+            {mergedAndSortedItems.map(item => (
+                item.itemType === 'post' ? (
                 <PostItem 
-                    key={item.id} 
-                    post={item} 
+                    key={`post-${item.id}`} 
+                    post={item as Post} 
                     currentUser={user} 
                     onUpvote={handleUpvote} 
                     onDelete={setPostToDelete} 
@@ -617,6 +623,13 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
                     onFollowToggle={handleFollowToggle}
                     onTogglePin={handleTogglePin}
                 />
+              ) : (
+                <ActivityItem 
+                    key={`activity-${item.id}`}
+                    activity={item as Activity}
+                    onViewProfile={onViewProfile}
+                />
+              )
             ))}
             </div>
             {feedType === 'all' && hasMore && (
