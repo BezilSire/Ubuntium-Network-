@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Member, User } from '../types';
+import { Member, User, Post } from '../types';
 import { api } from '../services/apiService';
 import { PencilIcon } from './icons/PencilIcon';
 import { useToast } from '../contexts/ToastContext';
 import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 import { PostsFeed } from './PostsFeed';
+import { PostTypeFilter } from './PostTypeFilter';
 
 interface MemberProfileProps {
   memberId: string;
@@ -33,6 +34,7 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
     const [isEditing, setIsEditing] = useState(false);
     const { addToast } = useToast();
     const [activeTab, setActiveTab] = useState<'profile' | 'posts'>('profile');
+    const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
 
     const [editData, setEditData] = useState({
         full_name: '',
@@ -288,11 +290,15 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                 <div className="mt-6">
                     {activeTab === 'profile' && (isEditing ? renderProfileEdit() : renderProfileView())}
                     {activeTab === 'posts' && member.uid && (
-                        <PostsFeed 
-                            user={currentUser}
-                            authorId={member.uid}
-                            onViewProfile={onViewProfile}
-                        />
+                        <>
+                            <PostTypeFilter currentFilter={typeFilter} onFilterChange={setTypeFilter} />
+                            <PostsFeed 
+                                user={currentUser}
+                                authorId={member.uid}
+                                onViewProfile={onViewProfile}
+                                typeFilter={typeFilter}
+                            />
+                        </>
                     )}
                 </div>
             </div>

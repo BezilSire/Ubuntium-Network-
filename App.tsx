@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -17,6 +18,9 @@ import { AppInstallBanner } from './components/AppInstallBanner';
 import { useProfileCompletionReminder } from './hooks/useProfileCompletionReminder';
 import { PublicProfile } from './components/PublicProfile';
 import { CompleteProfilePage } from './components/CompleteProfilePage';
+import { ChatBot } from './components/ChatBot';
+import { SparkleIcon } from './components/icons/SparkleIcon';
+import { UbtVerificationPage } from './components/UbtVerificationPage';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
@@ -38,6 +42,9 @@ const App: React.FC = () => {
   // State to trigger opening a chat from a global component like PublicProfile
   const [initialChat, setInitialChat] = useState<{ target: Conversation, role: User['role']} | null>(null);
   const onInitialChatConsumed = () => setInitialChat(null);
+  
+  // State for the AI Chat Bot
+  const [isChatBotOpen, setIsChatBotOpen] = useState(false);
 
 
   // Hook to remind users to complete their profile
@@ -129,7 +136,17 @@ const App: React.FC = () => {
       return <AuthPage />;
     }
 
-    if (!currentUser.isProfileComplete && currentUser.status !== 'pending') {
+    if (currentUser.status === 'pending') {
+        return (
+            <div className="p-4 sm:p-6 lg:p-8 flex items-center justify-center min-h-[calc(100vh-100px)]">
+                <UbtVerificationPage user={currentUser} />
+            </div>
+        );
+    }
+
+    // FIX: Removed redundant `currentUser.status !== 'pending'` check.
+    // The previous `if` block already handles the 'pending' case, so TypeScript correctly identified that this condition would always be true.
+    if (!currentUser.isProfileComplete) {
         return <div className="p-4 sm:p-6 lg:p-8"><CompleteProfilePage user={currentUser} onProfileComplete={handleProfileComplete} /></div>;
     }
 
@@ -225,6 +242,20 @@ const App: React.FC = () => {
       {renderContent()}
       <ToastContainer />
       <AppInstallBanner />
+      {currentUser && (
+        <>
+          <ChatBot isOpen={isChatBotOpen} onClose={() => setIsChatBotOpen(false)} currentUser={currentUser} />
+          {!isChatBotOpen && (
+            <button
+              onClick={() => setIsChatBotOpen(true)}
+              className="fixed bottom-6 right-6 z-30 w-16 h-16 bg-green-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-green-500 transform transition-transform hover:scale-110 animate-fade-in"
+              aria-label="Open AI Assistant"
+            >
+              <SparkleIcon className="h-8 w-8" />
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 };

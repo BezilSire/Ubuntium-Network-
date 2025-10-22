@@ -14,6 +14,7 @@ import { PlusCircleIcon } from './icons/PlusCircleIcon';
 import { GlobeIcon } from './icons/GlobeIcon';
 import { UsersIcon } from './icons/UsersIcon';
 import { CommunityPage } from './CommunityPage';
+import { PostTypeFilter } from './PostTypeFilter';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -28,6 +29,7 @@ interface MemberDashboardProps {
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
   const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile'>('feed');
   const [feedFilter, setFeedFilter] = useState<'all' | 'following'>('all');
+  const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
   const [isSubmittingDistress, setIsSubmittingDistress] = useState(false);
@@ -45,6 +47,11 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         onInitialChatConsumed();
     }
   }, [initialChat, user.role, onInitialChatConsumed]);
+
+  useEffect(() => {
+    // Reset type filter when switching main feed tabs for a cleaner UX
+    setTypeFilter('all');
+  }, [feedFilter]);
 
   useEffect(() => {
     if (user.status === 'active') {
@@ -165,7 +172,13 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             return (
                 <>
                     <FeedTabs />
-                    <PostsFeed user={user} feedType={feedFilter} onViewProfile={onViewProfile} />
+                    <PostTypeFilter currentFilter={typeFilter} onFilterChange={setTypeFilter} />
+                    <PostsFeed 
+                        user={user} 
+                        feedType={feedFilter} 
+                        typeFilter={typeFilter} 
+                        onViewProfile={onViewProfile} 
+                    />
                 </>
             );
         case 'community':
@@ -196,15 +209,6 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             isLoading={isSubmittingDistress}
         />
         
-        {user.status === 'pending' && (
-            <div className="mt-6 p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-center mx-4">
-                <p className="font-bold text-yellow-200">Your Account is Pending Approval</p>
-                <p className="text-sm text-yellow-300 mt-1">
-                    An administrator is reviewing your registration. Once approved, you will have full access.
-                </p>
-            </div>
-        )}
-
         <div className="mt-0">
             {renderContent()}
         </div>

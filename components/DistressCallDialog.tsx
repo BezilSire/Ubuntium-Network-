@@ -52,9 +52,11 @@ export const DistressCallDialog: React.FC<DistressCallDialogProps> = ({
                     className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                     placeholder="Example: I need immediate medical assistance at..."
                   />
-                  <p className="text-xs text-gray-400 mt-2">
-                    This will immediately create an anonymous post visible to your circle and a detailed alert for administrators. Use only in a real emergency.
-                  </p>
+                  <div className="text-xs text-gray-400 mt-4 space-y-1 p-3 bg-slate-900/50 rounded-lg border border-slate-700">
+                      <p className="font-semibold text-yellow-400">What is a Distress Call?</p>
+                      <p>A Distress Call is an urgent, anonymous alert for emergencies needing immediate community assistance (e.g., medical, security).</p>
+                      <p>It creates a post visible to your Circle and alerts administrators. This action is confidential and consumes one of your monthly calls. Misuse may affect your credibility score.</p>
+                  </div>
                 </div>
               </div>
             </div>

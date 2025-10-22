@@ -22,16 +22,22 @@ const PostTypeButton: React.FC<{
     value: Post['type'];
     currentValue: Post['type'];
     onClick: (value: Post['type']) => void;
-}> = ({ label, icon, value, currentValue, onClick }) => (
-    <button
-        onClick={() => onClick(value)}
-        className={`flex-1 flex flex-col items-center justify-center p-3 rounded-lg transition-colors duration-200 space-y-1 text-sm
-            ${currentValue === value ? 'bg-green-600/20 text-green-300' : 'bg-slate-800 hover:bg-slate-700 text-gray-300'}
-        `}
-    >
-        {icon}
-        <span>{label}</span>
-    </button>
+    tooltip: string;
+}> = ({ label, icon, value, currentValue, onClick, tooltip }) => (
+    <div className="relative group flex-1">
+        <button
+            onClick={() => onClick(value)}
+            className={`w-full flex flex-col items-center justify-center p-3 rounded-lg transition-colors duration-200 space-y-1 text-sm
+                ${currentValue === value ? 'bg-green-600/20 text-green-300' : 'bg-slate-800 hover:bg-slate-700 text-gray-300'}
+            `}
+        >
+            {icon}
+            <span>{label}</span>
+        </button>
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-900 text-white text-xs rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-slate-700 z-10">
+            {tooltip}
+        </div>
+    </div>
 );
 
 
@@ -93,11 +99,11 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({ isOpen, onClose, use
             </div>
             
             <div className="pt-2">
-                <div className="flex items-center justify-around space-x-2">
-                    <PostTypeButton label="General" icon={<MessageSquareIcon className="h-5 w-5"/>} value="general" currentValue={postType} onClick={setPostType} />
-                    <PostTypeButton label="Proposal" icon={<LightbulbIcon className="h-5 w-5"/>} value="proposal" currentValue={postType} onClick={setPostType} />
-                    <PostTypeButton label="Offer" icon={<UsersIcon className="h-5 w-5"/>} value="offer" currentValue={postType} onClick={setPostType} />
-                    <PostTypeButton label="Opportunity" icon={<BriefcaseIcon className="h-5 w-5"/>} value="opportunity" currentValue={postType} onClick={setPostType} />
+                <div className="flex items-start justify-around space-x-2">
+                    <PostTypeButton label="General" icon={<MessageSquareIcon className="h-5 w-5"/>} value="general" currentValue={postType} onClick={setPostType} tooltip="For general announcements, questions, or sharing information with the community."/>
+                    <PostTypeButton label="Proposal" icon={<LightbulbIcon className="h-5 w-5"/>} value="proposal" currentValue={postType} onClick={setPostType} tooltip="Suggest a new idea, project, or policy for the commons. This is for starting discussions on community governance and initiatives."/>
+                    <PostTypeButton label="Offer" icon={<UsersIcon className="h-5 w-5"/>} value="offer" currentValue={postType} onClick={setPostType} tooltip="Offer a skill, service, or resource to other members. This could be paid or voluntary."/>
+                    <PostTypeButton label="Opportunity" icon={<BriefcaseIcon className="h-5 w-5"/>} value="opportunity" currentValue={postType} onClick={setPostType} tooltip="Share a job opening, collaboration request, or other opportunity that members can benefit from."/>
                 </div>
             </div>
           </div>

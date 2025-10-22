@@ -12,6 +12,7 @@ import { UserPlusIcon } from './icons/UserPlusIcon';
 import { UserCheckIcon } from './icons/UserCheckIcon';
 import { FlagIcon } from './icons/FlagIcon';
 import { ReportUserModal } from './ReportUserModal';
+import { PostTypeFilter } from './PostTypeFilter';
 
 
 interface PublicProfileProps {
@@ -42,6 +43,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const [isProcessingFollow, setIsProcessingFollow] = useState(false);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'activity' | 'about' | 'card'>('activity');
+    const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
     const { addToast } = useToast();
 
     useEffect(() => {
@@ -50,6 +52,7 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
         setMemberDetails(null);
         setIsLoading(true);
         setActiveTab('activity');
+        setTypeFilter('all');
 
         const fetchProfileData = async () => {
             try {
@@ -273,10 +276,12 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
             <div className="mt-6">
                 {activeTab === 'activity' && (
                     <div className="animate-fade-in">
+                         <PostTypeFilter currentFilter={typeFilter} onFilterChange={setTypeFilter} />
                          <PostsFeed 
                             user={currentUser}
                             authorId={user.id}
                             onViewProfile={onViewProfile}
+                            typeFilter={typeFilter}
                         />
                     </div>
                 )}

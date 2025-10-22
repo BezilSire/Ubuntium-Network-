@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { User, Member } from '../types';
 import { CheckCircleIcon } from './icons/CheckCircleIcon';
 
@@ -27,6 +27,20 @@ export const ProfileCompletionMeter: React.FC<ProfileCompletionMeterProps> = ({ 
     return Math.round((filledCount / fieldsToCheck.length) * 100);
   }, [profileData, role]);
 
+  const prevPercentageRef = useRef<number>();
+  const [animationKey, setAnimationKey] = useState(0);
+
+  useEffect(() => {
+    // Check if the percentage has just reached 100
+    if ((prevPercentageRef.current ?? 0) < 100 && completionPercentage === 100) {
+      // Increment key to re-trigger animation
+      setAnimationKey(prevKey => prevKey + 1);
+    }
+    // Store the current percentage for the next check
+    prevPercentageRef.current = completionPercentage;
+  }, [completionPercentage]);
+
+
   const barColor = completionPercentage === 100 ? 'bg-green-500' : 'bg-green-600';
 
   return (
@@ -34,7 +48,7 @@ export const ProfileCompletionMeter: React.FC<ProfileCompletionMeterProps> = ({ 
       <div className="flex justify-between items-center mb-2">
         <h4 className="text-sm font-medium text-gray-200">Profile Completion</h4>
         <div className="flex items-center space-x-1">
-            {completionPercentage === 100 && <CheckCircleIcon className="h-5 w-5 text-green-400" />}
+            {completionPercentage === 100 && <CheckCircleIcon key={animationKey} className="h-5 w-5 text-green-400 animate-check-pop" />}
             <span className="text-lg font-bold text-white">{completionPercentage}%</span>
         </div>
       </div>

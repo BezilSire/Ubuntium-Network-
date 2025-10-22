@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Post, User, Comment } from '../types';
 import { api } from '../services/apiService';
@@ -25,6 +23,12 @@ import { SendIcon } from './icons/SendIcon';
 import { Timestamp, DocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { PinIcon } from './icons/PinIcon';
 import { LoaderIcon } from './icons/LoaderIcon';
+
+const postTypeTooltips: Record<string, string> = {
+    proposal: "This is a proposal for a new idea, project, or policy for the commons.",
+    offer: "This is an offer of a skill, service, or resource to other members.",
+    opportunity: "This is a job opening, collaboration request, or other opportunity.",
+};
 
 // --- Comment Section Components ---
 
@@ -205,9 +209,16 @@ export const PostItem: React.FC<{
             )}
 
             {style.title && post.type !== 'distress' && (
-                <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider bg-slate-700/50 text-gray-300 px-2.5 py-1 rounded-full self-start">
-                    {style.icon}
-                    <span>{style.title}</span>
+                <div className="relative group self-start">
+                    <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider bg-slate-700/50 text-gray-300 px-2.5 py-1 rounded-full">
+                        {style.icon}
+                        <span>{style.title}</span>
+                    </div>
+                    {postTypeTooltips[post.type] && (
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-slate-900 text-white text-xs rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-slate-700 z-10">
+                            {postTypeTooltips[post.type]}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -339,6 +350,7 @@ export const PostItem: React.FC<{
 interface PostsFeedProps {
   user: User;
   feedType?: 'all' | 'following';
+  typeFilter?: Post['type'] | 'all';
   authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;
@@ -346,7 +358,7 @@ interface PostsFeedProps {
 
 const POSTS_PER_PAGE = 10;
 
-export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', authorId, isAdminView = false, onViewProfile }) => {
+export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', typeFilter = 'all', authorId, isAdminView = false, onViewProfile }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastVisible, setLastVisible] = useState<DocumentSnapshot<DocumentData> | null>(null);
@@ -365,11 +377,18 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     setHasMore(true);
     setPosts([]);
     try {
-      const [pinnedPosts, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
+      const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
         api.fetchPinnedPosts(),
-        api.fetchRegularPosts(POSTS_PER_PAGE)
+        // FIX: Cast typeFilter to the correct type to resolve the TypeScript error.
+        api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all')
       ]);
       
+      let pinnedPosts = pinnedPostsResult;
+      // Client-side filter for pinned posts, as they are few
+      if (typeFilter !== 'all') {
+        pinnedPosts = pinnedPosts.filter(p => p.type === typeFilter);
+      }
+
       const all = [...pinnedPosts, ...regularPosts];
       const uniquePosts = Array.from(new Map(all.map(p => [p.id, p])).values());
 
@@ -384,13 +403,14 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     } finally {
       setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, typeFilter]);
 
   const fetchMorePosts = useCallback(async () => {
     if (!hasMore || isLoadingMore || !lastVisible) return;
     setIsLoadingMore(true);
     try {
-      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, lastVisible);
+      // FIX: Cast typeFilter to the correct type to resolve the TypeScript error.
+      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all', lastVisible);
       
       const existingIds = new Set(posts.map(p => p.id));
       const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.id));
@@ -406,7 +426,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     } finally {
       setIsLoadingMore(false);
     }
-  }, [addToast, hasMore, isLoadingMore, lastVisible, posts]);
+  }, [addToast, hasMore, isLoadingMore, lastVisible, posts, typeFilter]);
 
   useEffect(() => {
     const onError = (error: Error) => {
@@ -438,16 +458,26 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', au
     
     return () => {}; // No cleanup needed for async fetches
   }, [feedType, authorId, user.following, addToast, fetchInitialPosts]);
+  
+  const filteredPosts = useMemo(() => {
+    // For 'all' feed (paginated), the API has already filtered.
+    // So we only apply client-side filtering for listener-based feeds.
+    if (typeFilter === 'all' || feedType === 'all') {
+      return posts;
+    }
+    return posts.filter(p => p.type === typeFilter);
+  }, [posts, typeFilter, feedType]);
 
   const sortedPosts = useMemo(() => {
-    return [...posts].sort((a, b) => {
+    return [...filteredPosts].sort((a, b) => {
         const aIsPinned = a.isPinned ?? false;
         const bIsPinned = b.isPinned ?? false;
         if (aIsPinned && !bIsPinned) return -1;
         if (!aIsPinned && bIsPinned) return 1;
+        // Dates are already sorted by the API/listener query
         return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
-  }, [posts]);
+  }, [filteredPosts]);
 
   const handleUpvote = async (postId: string) => {
     try {

@@ -1,9 +1,10 @@
 
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Chat } from "@google/genai";
 
 // Create a singleton instance that will be initialized on first use.
 let aiInstance: GoogleGenAI | null = null;
+let chat: Chat | null = null;
 
 /**
  * Initializes and returns the GoogleGenAI client instance.
@@ -19,6 +20,42 @@ const getAiClient = (): GoogleGenAI => {
     aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   return aiInstance;
+};
+
+/**
+ * Initializes or re-initializes a chat session with optional history.
+ * @param history A pre-existing chat history to provide context to the model.
+ */
+export const initializeChat = (history?: { role: string; parts: { text: string }[] }[]) => {
+    const ai = getAiClient();
+    chat = ai.chats.create({
+        model: 'gemini-2.5-flash',
+        history: history,
+        config: {
+            systemInstruction: "You are a friendly and helpful assistant for the Ubuntium Global Commons platform. Answer questions about the community, its values ('ubuntu' - I am because we are), and how to use the app. Keep your responses concise, positive, and helpful."
+        }
+    });
+};
+
+
+export const getChatBotResponse = async (prompt: string): Promise<string> => {
+    if (!chat) {
+        // Fallback: if chat is not initialized, initialize it without history.
+        initializeChat();
+    }
+    try {
+        const response = await chat!.sendMessage({ message: prompt });
+        const text = response.text.trim();
+        if (!text) {
+            throw new Error("I'm not sure how to respond to that. Could you try rephrasing?");
+        }
+        return text;
+    } catch (error) {
+        console.error("Error getting chat bot response:", error);
+        // Reset chat on error so the user can start a fresh conversation.
+        chat = null;
+        throw new Error("Sorry, I'm having trouble connecting right now. Please close this chat and try again in a moment.");
+    }
 };
 
 export const generateWelcomeMessage = async (memberName: string, circleName: string): Promise<string> => {

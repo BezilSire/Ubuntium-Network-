@@ -19,13 +19,13 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ onProfileSelect, cur
 
   useEffect(() => {
     // Fetch all searchable users once when the component mounts.
-    api.getSearchableUsers().then(users => {
-      // Filter out the current user from the list
-      setAllUsers(users.filter(u => u.id !== currentUser.id));
+    api.getSearchableUsers(currentUser).then(users => {
+      // The API service now handles filtering out the current user.
+      setAllUsers(users);
     }).catch(error => {
       console.error("Failed to load users for search:", error);
     });
-  }, [currentUser.id]);
+  }, [currentUser]); // Depend on the whole currentUser to refetch on follow/unfollow
 
   useEffect(() => {
     if (!query) {

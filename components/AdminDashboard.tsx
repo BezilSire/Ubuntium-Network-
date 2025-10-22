@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Admin, Agent, Member, Broadcast, Report, User, MemberUser, Conversation, NotificationItem } from '../types';
+import { Admin, Agent, Member, Broadcast, Report, User, MemberUser, Conversation, NotificationItem, Post } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { MemberList } from './MemberList';
@@ -24,6 +24,7 @@ import { UserCircleIcon } from './icons/UserCircleIcon';
 import { BellIcon } from './icons/BellIcon';
 import { NotificationsPage } from './NotificationsPage';
 import { LoaderIcon } from './icons/LoaderIcon';
+import { PostTypeFilter } from './PostTypeFilter';
 
 
 const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; description?: string; }> = ({ icon, title, value, description }) => (
@@ -78,6 +79,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [dialogState, setDialogState] = useState<{ isOpen: boolean; member: Member | null; action: 'reset' | 'clear' }>({ isOpen: false, member: null, action: 'reset' });
   const [roleChangeDialog, setRoleChangeDialog] = useState<{ isOpen: boolean; user: User | null; newRole: User['role'] | null }>({ isOpen: false, user: null, newRole: null });
   const [verificationModalState, setVerificationModalState] = useState<{ isOpen: boolean, member: Member | null }>({ isOpen: false, member: null });
+  const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
 
   useEffect(() => {
     if (initialChat && initialChat.role === user.role) {
@@ -489,7 +491,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         switch (view) {
             case 'dashboard': return renderDashboardView();
             case 'users': return renderUsersView();
-            case 'feed': return <PostsFeed user={user} feedType="all" isAdminView onViewProfile={onViewProfile} />;
+            case 'feed': return (
+                <>
+                    <PostTypeFilter currentFilter={typeFilter} onFilterChange={setTypeFilter} />
+                    <PostsFeed 
+                        user={user} 
+                        feedType="all" 
+                        isAdminView 
+                        onViewProfile={onViewProfile}
+                        typeFilter={typeFilter}
+                    />
+                </>
+            );
             case 'connect': return <ConnectPage user={user} initialTarget={chatTarget} onViewProfile={onViewProfile} />;
             case 'reports': return <div className="bg-slate-800 p-6 rounded-lg shadow-lg"><ReportsView reports={reports} onViewProfile={onViewProfile} onResolve={(reportId, postId, authorId) => api.resolvePostReport(user, reportId, postId, authorId)} onDismiss={(reportId) => api.dismissReport(user, reportId)}/></div>;
             case 'profile': return <AdminProfile user={user} onUpdateUser={onUpdateUser} />;

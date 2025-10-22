@@ -1,4 +1,3 @@
-
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -187,15 +186,37 @@ export const api = {
   // User/Profile Management
   getUserProfile, 
 
-  getSearchableUsers: async (): Promise<User[]> => {
-    // Securely build a list of users by looking at recent posters to avoid broad, permission-denied queries on 'users' or 'members'.
-    const q = query(postsCollection, orderBy("date", "desc"), limit(500));
-    const postsSnapshot = await getDocs(q);
-    // FIX: Added explicit string[] type to fix incorrect type inference.
-    const authorUids: string[] = Array.from(new Set(postsSnapshot.docs.map(doc => doc.data().authorId).filter((id): id is string => typeof id === 'string' && !!id)));
+  getSearchableUsers: async (currentUser: User): Promise<User[]> => {
+    // Securely build a list of users from multiple sources to improve discovery
+    // and provide fallbacks in case of restrictive security rules.
+    const allUids = new Set<string>();
+
+    // 1. Add direct connections (following/followers)
+    (currentUser.following || []).forEach(uid => allUids.add(uid));
+    (currentUser.followers || []).forEach(uid => allUids.add(uid));
     
-    // This will only find active users by default, which is correct for a search context.
-    return await fetchUsersByUids(authorUids);
+    // 2. Add users from recent global posts as a fallback/discovery mechanism
+    try {
+      const q = query(postsCollection, orderBy("date", "desc"), limit(100));
+      const postsSnapshot = await getDocs(q);
+      postsSnapshot.docs.forEach(doc => {
+          const authorId = doc.data().authorId;
+          if (authorId) {
+            allUids.add(authorId);
+          }
+      });
+    } catch (error) {
+        console.warn("Could not fetch recent posts for search suggestions, possibly due to security rules. User discovery may be limited.", error);
+    }
+    
+    // 3. Remove self from the list
+    allUids.delete(currentUser.id);
+    
+    const uniqueUids = Array.from(allUids);
+    if (uniqueUids.length === 0) return [];
+
+    // This will only find active users by default
+    return await fetchUsersByUids(uniqueUids);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -306,7 +327,7 @@ export const api = {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      const q = query(usersCollection, orderBy("name", "asc"));
+      const q = query(usersCollection, orderBy('name'));
       return onSnapshot(q,
         (snapshot) => {
             const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
@@ -330,11 +351,10 @@ export const api = {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      const q = query(membersCollection);
+      const q = query(membersCollection, orderBy('date_registered', 'desc'));
       return onSnapshot(q,
         (snapshot) => {
             const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
-            members.sort((a, b) => new Date(b.date_registered).getTime() - new Date(a.date_registered).getTime());
             
             const emailCounts = members.reduce((acc, member) => {
                 acc[member.email] = (acc[member.email] || 0) + 1;
@@ -351,17 +371,19 @@ export const api = {
       );
   },
   
-  listenForPendingMembers: (currentUser: User, callback: (members: Member[]) => void, onError: (error: Error) => void): () => void => {
+  listenForPendingMembers: (currentUser: User, callback: (members: Member[]) => void, onError: (error: Error) => void): (() => void) => {
       if (currentUser.role !== 'admin') {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      const q = query(membersCollection, where("payment_status", "==", "pending_verification"));
+      // Make query more specific to avoid a full collection scan and rely on an index.
+      const q = query(membersCollection, where('payment_status', '==', 'pending_verification'));
       return onSnapshot(q, 
         (snapshot) => {
-            const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
-            members.sort((a, b) => new Date(a.date_registered).getTime() - new Date(b.date_registered).getTime());
-            callback(members);
+            const pendingMembers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
+            // Sort client-side
+            pendingMembers.sort((a, b) => new Date(a.date_registered).getTime() - new Date(b.date_registered).getTime());
+            callback(pendingMembers);
         },
         (error) => {
             console.error("Firestore listener error (pending members):", error);
@@ -370,15 +392,17 @@ export const api = {
       );
   },
 
-  listenForAllAgents: (currentUser: User, callback: (agents: Agent[]) => void, onError: (error: Error) => void): () => void => {
+  listenForAllAgents: (currentUser: User, callback: (agents: Agent[]) => void, onError: (error: Error) => void): (() => void) => {
       if (currentUser.role !== 'admin') {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      const q = query(usersCollection, where("role", "==", "agent"));
+      // Make query more specific to avoid a full collection scan and rely on an index.
+      const q = query(usersCollection, where('role', '==', 'agent'));
       return onSnapshot(q,
         (snapshot) => {
             const agents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agent));
+            agents.sort((a, b) => a.name.localeCompare(b.name));
             callback(agents);
         },
         (error) => {
@@ -444,9 +468,11 @@ export const api = {
   },
 
   getBroadcasts: async (): Promise<Broadcast[]> => {
-    const q = query(broadcastsCollection, orderBy("date", "desc"), limit(20));
+    const q = query(broadcastsCollection, limit(20));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast));
+    const broadcasts = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast));
+    broadcasts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return broadcasts;
   },
   
    updatePaymentStatus: async (currentUser: User, memberId: string, status: Member['payment_status']): Promise<void> => {
@@ -506,17 +532,17 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    // Query by the most selective field first to reduce documents read.
+    // Query without orderBy to avoid needing a composite index.
     const q = query(
         activityFeedCollection, 
         where("type", "==", "NEW_MEMBER"), 
-        orderBy("timestamp", "desc"),
         limit(150) // Fetch a larger pool to filter from
     );
     const snapshot = await getDocs(q);
     const activities = snapshot.docs
         .map(doc => doc.data() as Activity)
-        .filter(activity => activity.causerCircle === circle); // Client-side filter for circle
+        .filter(activity => activity.causerCircle === circle) // Client-side filter for circle
+        .sort((a,b) => b.timestamp.toMillis() - a.timestamp.toMillis()); // Sort client-side
 
     const memberUids = activities.slice(0, 12)
         .map(activity => activity.causerId)
@@ -700,42 +726,77 @@ export const api = {
   },
 
   fetchPinnedPosts: async (): Promise<Post[]> => {
+    // Query directly for pinned posts instead of scanning the whole collection.
     const q = query(postsCollection, where("isPinned", "==", true));
     const snapshot = await getDocs(q);
-    const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-    // Sort client-side to avoid needing a composite index
+    const posts = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() } as Post));
     posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return posts;
   },
 
-  fetchRegularPosts: async (limitNum: number, lastVisible?: DocumentSnapshot<DocumentData>): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
+  fetchRegularPosts: async (
+    limitNum: number, 
+    typeFilter: Post['type'] | 'all', 
+    lastVisible?: DocumentSnapshot<DocumentData>
+  ): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
+    
     const allowedInAllFeed: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
-    
-    // Fetch a larger batch to account for client-side filtering.
-    const queryLimit = limitNum * 3;
 
-    const constraints: any[] = [
-        orderBy("date", "desc"),
-        limit(queryLimit)
-    ];
+    let collectedPosts: Post[] = [];
+    let currentCursor: DocumentSnapshot<DocumentData> | null = lastVisible || null;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 5; // Safety break to prevent infinite loops/excessive reads
+    const FETCH_CHUNK_SIZE = 25; // Fetch more than `limitNum` to increase chance of finding matches
 
-    if (lastVisible) {
-        constraints.push(startAfter(lastVisible));
-    }
+    while (collectedPosts.length < limitNum && attempts < MAX_ATTEMPTS) {
+        attempts++;
+        const constraints: any[] = [orderBy("date", "desc"), limit(FETCH_CHUNK_SIZE)];
+        if (currentCursor) {
+            constraints.push(startAfter(currentCursor));
+        }
 
-    // Query without type filter to avoid composite index
-    const q = query(postsCollection, ...constraints);
-    const snapshot = await getDocs(q);
-    
-    // Filter client-side
-    const posts = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Post))
-        .filter(p => allowedInAllFeed.includes(p.type));
+        const q = query(postsCollection, ...constraints);
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            break; // No more posts left in the database.
+        }
+
+        for (const doc of snapshot.docs) {
+            // This ensures we have a valid cursor for the next iteration before we start filtering
+            currentCursor = doc; 
+            
+            const post = { id: doc.id, ...doc.data() } as Post;
+            
+            // Determine if the post should be included
+            let shouldInclude = false;
+            if (typeFilter === 'all') {
+                if (allowedInAllFeed.includes(post.type)) {
+                    shouldInclude = true;
+                }
+            } else {
+                if (post.type === typeFilter) {
+                    shouldInclude = true;
+                }
+            }
+            
+            // Add to results if it matches and we still need more posts
+            if (shouldInclude && collectedPosts.length < limitNum) {
+                // Also ensure we don't add duplicates if logic ever gets weird
+                if (!collectedPosts.some(p => p.id === post.id)) {
+                    collectedPosts.push(post);
+                }
+            }
+        }
         
-    // The new cursor is the last document from the *unfiltered* query result.
-    const newLastVisible = snapshot.docs[snapshot.docs.length - 1];
-
-    return { posts, lastVisible: newLastVisible || null };
+        // If the number of docs returned is less than our chunk size, we've hit the end.
+        if (snapshot.docs.length < FETCH_CHUNK_SIZE) {
+            break;
+        }
+    }
+    
+    return { posts: collectedPosts, lastVisible: currentCursor || null };
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
@@ -855,7 +916,7 @@ export const api = {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
     }
-    const q = query(reportsCollection, orderBy("date", "desc"));
+    const q = query(reportsCollection, orderBy('date', 'desc'));
     return onSnapshot(q, (snapshot) => {
         const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report));
         callback(reports);
@@ -890,20 +951,22 @@ export const api = {
   // ... (rest of the functions: chat, notifications, etc.)
   getChatContacts: async (currentUser: User, includeSelf = false): Promise<User[]> => {
     if (currentUser.role === 'agent') return []; // Agents can't start chats
-    let uids: string[] = [];
+    let users: User[] = [];
     if (currentUser.role === 'admin') {
-        const q = query(usersCollection, where('status', '==', 'active'));
+        const q = query(usersCollection);
         const snapshot = await getDocs(q);
-        uids = snapshot.docs.map(d => d.id);
+        users = snapshot.docs.map(d => ({id: d.id, ...d.data()} as User)).filter(u => u.status === 'active');
     } else { // Member
-        const following = currentUser.following || [];
-        const followers = currentUser.followers || [];
-        uids = [...new Set([...following, ...followers])];
+        const uids = [...new Set([...(currentUser.following || []), ...(currentUser.followers || [])])];
+        if (uids.length > 0) {
+            users = await fetchUsersByUids(uids);
+        }
     }
+    
     if (!includeSelf) {
-        uids = uids.filter(id => id !== currentUser.id);
+        users = users.filter(user => user.id !== currentUser.id);
     }
-    return fetchUsersByUids(uids);
+    return users;
   },
   
   startChat: async (currentUserId: string, targetUserId: string, currentUserName: string, targetUserName: string): Promise<Conversation> => {
