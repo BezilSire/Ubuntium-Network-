@@ -432,44 +432,46 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     setHasMore(true);
     setPosts([]);
     try {
-      const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
-        api.fetchPinnedPosts(),
-        api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all')
-      ]);
-      
-      let pinnedPosts = pinnedPostsResult;
-      if (typeFilter !== 'all') {
-        pinnedPosts = pinnedPosts.filter(p => p.types === typeFilter);
-      }
+        // FIX: Add type assertion to `typeFilter` to prevent type errors when a parent component passes a generic string.
+        const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
+            api.fetchPinnedPosts(isAdminView),
+            api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', isAdminView)
+        ]);
+        
+        let pinnedPosts = pinnedPostsResult;
+        if (typeFilter !== 'all') {
+            pinnedPosts = pinnedPosts.filter(p => p.types === typeFilter);
+        }
 
-      const all = [...pinnedPosts, ...regularPosts];
-      const uniquePosts = Array.from(new Map(all.map(p => [p.id, p])).values());
+        const all = [...pinnedPosts, ...regularPosts];
+        const uniquePosts = Array.from(new Map(all.map(p => [p.id, p])).values());
 
-      setPosts(uniquePosts);
-      setLastVisible(newLastVisible);
-      if (regularPosts.length < POSTS_PER_PAGE) {
-        setHasMore(false);
-      }
+        setPosts(uniquePosts);
+        setLastVisible(newLastVisible);
+        if (regularPosts.length < POSTS_PER_PAGE || newLastVisible === null) {
+            setHasMore(false);
+        }
     } catch (error) {
-      addToast("Could not load feed. Please check your permissions.", "error");
-      console.error("Feed loading error:", error);
+        addToast("Could not load feed. Please check your permissions.", "error");
+        console.error("Feed loading error:", error);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  }, [addToast, typeFilter]);
+  }, [addToast, typeFilter, isAdminView]);
 
   const fetchMorePosts = useCallback(async () => {
     if (!hasMore || isLoadingMore || !lastVisible) return;
     setIsLoadingMore(true);
     try {
-      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', lastVisible);
+      // FIX: Add type assertion to `typeFilter` to prevent type errors when a parent component passes a generic string.
+      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', isAdminView, lastVisible);
       
       const existingIds = new Set(posts.map(p => p.id));
       const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.id));
 
       setPosts(prev => [...prev, ...uniqueNewPosts]);
       setLastVisible(newLastVisible);
-      if (newPosts.length < POSTS_PER_PAGE) {
+      if (newPosts.length < POSTS_PER_PAGE || newLastVisible === null) {
         setHasMore(false);
       }
     } catch (error) {
@@ -478,7 +480,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     } finally {
       setIsLoadingMore(false);
     }
-  }, [addToast, hasMore, isLoadingMore, lastVisible, posts, typeFilter]);
+  }, [addToast, hasMore, isLoadingMore, lastVisible, posts, typeFilter, isAdminView]);
 
   useEffect(() => {
     const onError = (error: Error) => {
@@ -492,7 +494,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     if (authorId) {
         setIsLoading(true);
         const unsub = api.listenForPostsByAuthor(authorId, (fetchedPosts) => {
-            setPosts(fetchedPosts);
+            const filtered = typeFilter === 'all' ? fetchedPosts : fetchedPosts.filter(p => p.types === typeFilter);
+            setPosts(filtered);
             setIsLoading(false);
             setHasMore(false);
         }, onError);
@@ -500,7 +503,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     } else if (feedType === 'following') {
         setIsLoading(true);
         const unsub = api.listenForFollowingPosts(user.following || [], (fetchedPosts) => {
-            setPosts(fetchedPosts);
+            const filtered = typeFilter === 'all' ? fetchedPosts : fetchedPosts.filter(p => p.types === typeFilter);
+            setPosts(filtered);
             setIsLoading(false);
             setHasMore(false);
         }, onError);
@@ -514,11 +518,11 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     }
     
     return () => { unsubActivities(); };
-  }, [feedType, authorId, user.following, addToast, fetchInitialPosts]);
+  }, [feedType, authorId, user.following, addToast, fetchInitialPosts, typeFilter]);
   
   const mergedAndSortedItems = useMemo(() => {
     const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
-    const typedActivities = activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() }));
+    const typedActivities = feedType === 'all' ? activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: a.timestamp.toDate() })) : [];
     
     const allItems: (typeof typedPosts[0] | typeof typedActivities[0])[] = [...typedPosts, ...typedActivities];
 
@@ -535,24 +539,45 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     const uniqueItems = Array.from(new Map(allItems.map(item => [`${item.itemType}-${item.id}`, item])).values());
     
     return uniqueItems;
-  }, [posts, activities]);
+  }, [posts, activities, feedType]);
 
   const handleUpvote = async (postId: string) => {
     try {
-        await api.upvotePost(postId, user.id);
+      // The API call will update the database.
+      await api.upvotePost(postId, user.id);
+      
+      // Since the 'all' feed is not real-time (it uses pagination), we need to
+      // manually update the local state to provide instant visual feedback.
+      // For real-time feeds (like 'following'), the listener will handle this automatically,
+      // but running it here too ensures a snappy UI response for all cases.
+      setPosts(prevPosts =>
+        prevPosts.map(p => {
+          if (p.id === postId) {
+            const hasUpvoted = p.upvotes.includes(user.id);
+            // The API call toggled the state, so we mimic that toggle here.
+            const newUpvotes = hasUpvoted
+              ? p.upvotes.filter(uid => uid !== user.id)
+              : [...p.upvotes, user.id];
+            return { ...p, upvotes: newUpvotes };
+          }
+          return p;
+        })
+      );
     } catch (error) {
-        addToast("Could not process like.", "error");
+      addToast("Could not process like.", "error");
     }
   };
   
   const handleConfirmDelete = async () => {
     if (!postToDelete) return;
+    const postToDeleteId = postToDelete.id;
     try {
         if (postToDelete.types === 'distress') {
             await api.deleteDistressPost(user, postToDelete.id, postToDelete.authorId);
         } else {
             await api.deletePost(postToDelete.id);
         }
+        setPosts(prev => prev.filter(p => p.id !== postToDeleteId));
         addToast("Post deleted.", "info");
     } catch (error) {
         addToast("Failed to delete post.", "error");
@@ -564,6 +589,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
   const handleSaveEdit = async (postId: string, content: string) => {
     try {
         await api.updatePost(postId, content);
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, content } : p));
         setPostToEdit(null);
         addToast("Post updated successfully!", "success");
     } catch (error) {
@@ -614,6 +640,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
         await api.repostPost(originalPost, user, comment);
         addToast("Post reposted successfully!", "success");
         setPostToRepost(null);
+        // Refresh feed to show repost
+        if(feedType === 'all') fetchInitialPosts();
     } catch (error) {
         addToast("Failed to repost.", "error");
         console.error(error);
@@ -643,6 +671,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     if (user.role !== 'admin') return;
     try {
       await api.togglePinPost(user, post.id, !post.isPinned);
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, isPinned: !post.isPinned } : p));
       addToast(post.isPinned ? "Post unpinned." : "Post pinned to top.", "success");
     } catch (error) {
       addToast("Failed to update pin status.", "error");
@@ -685,7 +714,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
               )
             ))}
             </div>
-            {feedType === 'all' && hasMore && (
+            {feedType === 'all' && !authorId && hasMore && (
                 <div className="text-center mt-6">
                     <button 
                         onClick={fetchMorePosts}

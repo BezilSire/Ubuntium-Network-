@@ -730,67 +730,113 @@ export const api = {
     );
   },
 
-  fetchPinnedPosts: async (): Promise<Post[]> => {
-    // Query directly for pinned posts AND filter by public types to avoid permission errors.
-    const q = query(
-      postsCollection, 
-      where("isPinned", "==", true), 
-      where("types", "in", PUBLIC_POST_TYPES)
+  fetchPinnedPosts: async (isAdminView: boolean): Promise<Post[]> => {
+    // If an admin can see pinned distress posts, they should be included.
+    const typesToFetch = isAdminView ? [...PUBLIC_POST_TYPES, 'distress'] : PUBLIC_POST_TYPES;
+
+    // Using multiple queries instead of a single 'in' query to avoid potential security rule issues.
+    const promises = typesToFetch.map(type => {
+        const q = query(
+            postsCollection,
+            where("isPinned", "==", true),
+            where("types", "==", type)
+        );
+        return getDocs(q);
+    });
+
+    const snapshots = await Promise.all(promises);
+    const allPosts: Post[] = snapshots.flatMap(snapshot => 
+        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post))
     );
-    const snapshot = await getDocs(q);
-    const posts = snapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() } as Post));
-    // Sort client-side as we can't order by date with this query without a specific index.
-    posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return posts;
+
+    allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return allPosts;
   },
 
   fetchRegularPosts: async (
     limitNum: number, 
-    typeFilter: Post['types'] | 'all', 
+    typeFilter: Post['types'] | 'all',
+    isAdminView: boolean,
     lastVisible?: DocumentSnapshot<DocumentData>
   ): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
     
-    const constraints: any[] = [orderBy("date", "desc")];
-    
+    // If a specific type is requested, use the simple and efficient query.
+    // This supports pagination correctly.
     if (typeFilter !== 'all') {
-      constraints.push(where("types", "==", typeFilter));
-    } else {
-      // For 'all' feed, we only want the public feed types.
-      // 'distress' posts are special and not included here.
-      constraints.push(where("types", "in", PUBLIC_POST_TYPES));
+      if (typeFilter === 'distress' && !isAdminView) {
+        return { posts: [], lastVisible: null };
+      }
+      
+      const constraints: any[] = [
+        where("types", "==", typeFilter),
+        orderBy("date", "desc"),
+        limit(limitNum)
+      ];
+      if (lastVisible) {
+        constraints.push(startAfter(lastVisible));
+      }
+      const q = query(postsCollection, ...constraints);
+      const snapshot = await getDocs(q);
+      const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+      const newLastVisible = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+      return { posts, lastVisible: newLastVisible };
     }
-    
-    constraints.push(limit(limitNum));
-    
-    if (lastVisible) {
-      constraints.push(startAfter(lastVisible));
-    }
-    
-    const q = query(postsCollection, ...constraints);
-    const snapshot = await getDocs(q);
 
-    const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-    // Correctly get the last visible document for pagination
-    const newLastVisible = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+    // --- Logic for 'all' feed ---
+    // This part runs multiple queries in parallel to avoid 'IN' clauses which can fail security rules.
+    // Pagination is disabled for this view to ensure stability.
+    const allowedTypes = isAdminView ? [...PUBLIC_POST_TYPES, 'distress'] : PUBLIC_POST_TYPES;
 
-    return { posts, lastVisible: newLastVisible };
+    const promises = allowedTypes.map(type => {
+        const q = query(
+            postsCollection,
+            where("types", "==", type),
+            orderBy("date", "desc"),
+            limit(limitNum) // Fetch `limitNum` of *each type* to build a diverse feed.
+        );
+        return getDocs(q);
+    });
+
+    const snapshots = await Promise.all(promises);
+    const allPosts: Post[] = snapshots.flatMap(snapshot => 
+        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post))
+    );
+
+    allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // We return the top `limitNum` posts, and null for lastVisible to signal that pagination is not supported for this query.
+    return { posts: allPosts.slice(0, limitNum), lastVisible: null };
   },
 
   listenForPostsByAuthor: (authorId: string, callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
-      // Query for public post types by a specific author to avoid permission errors on distress posts.
-      const q = query(
-        postsCollection, 
-        where("authorId", "==", authorId), 
-        where("types", "in", PUBLIC_POST_TYPES),
-        orderBy("date", "desc"),
-        limit(50)
-      );
-      
-      return onSnapshot(q, (snapshot) => {
-          const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-          callback(posts);
-      }, onError);
+    // This function is refactored to use multiple queries to avoid `IN` clauses on the `types` field,
+    // which can be problematic for Firestore security rules.
+    const postMap = new Map<string, Post>();
+    const allUnsubscribers: (() => void)[] = [];
+    const typesToFetch = [...PUBLIC_POST_TYPES]; // Can be extended for admin view if needed
+
+    typesToFetch.forEach(type => {
+        const q = query(
+            postsCollection,
+            where("authorId", "==", authorId),
+            where("types", "==", type),
+            orderBy("date", "desc"),
+            limit(50) // Limit per type to avoid over-fetching
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            snapshot.docs.forEach(doc => {
+                postMap.set(doc.id, { id: doc.id, ...doc.data() } as Post);
+            });
+            const allPosts = Array.from(postMap.values());
+            allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            callback(allPosts);
+        }, onError);
+
+        allUnsubscribers.push(unsub);
+    });
+
+    return () => allUnsubscribers.forEach(unsub => unsub());
   },
 
   listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
@@ -799,7 +845,6 @@ export const api = {
           return () => {};
       }
       
-      // Firestore 'in' queries are limited to 30 items
       const chunks: string[][] = [];
       for (let i = 0; i < followingIds.length; i += 30) {
         chunks.push(followingIds.slice(i, i + 30));
@@ -808,31 +853,37 @@ export const api = {
       const postMap = new Map<string, Post>();
       const allUnsubscribers: (() => void)[] = [];
 
-      // Since we cannot combine two 'in' clauses (one for authorId, one for type),
-      // we must create separate queries for each post type to respect security rules.
+      // Create a listener for each combination of author chunk and public post type.
+      // This makes the queries specific enough to be allowed by security rules.
       chunks.forEach(chunk => {
         PUBLIC_POST_TYPES.forEach(type => {
-          const q = query(
-            postsCollection, 
-            where("authorId", "in", chunk), 
-            where("types", "==", type),
-            orderBy("date", "desc"),
-            limit(20) // Limit per type to avoid fetching too much data
-          );
+            const q = query(
+                postsCollection, 
+                where("authorId", "in", chunk),
+                where("types", "==", type),
+                orderBy("date", "desc"),
+                limit(25) // Limit per query to avoid fetching too much data from one type/chunk
+            );
 
-          const unsub = onSnapshot(q, (snapshot) => {
-              snapshot.docs.forEach(doc => {
-                postMap.set(doc.id, { id: doc.id, ...doc.data() } as Post);
-              });
-              const allPosts = Array.from(postMap.values());
-              allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              callback(allPosts);
-          }, (error) => {
-            console.error(`Error on following feed listener for type '${type}':`, error);
-            onError(error);
-          });
+            const unsub = onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'removed') {
+                        postMap.delete(change.doc.id);
+                    } else {
+                        const post = { id: change.doc.id, ...change.doc.data() } as Post;
+                        postMap.set(change.doc.id, post);
+                    }
+                });
+                
+                const allPosts = Array.from(postMap.values());
+                allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                callback(allPosts);
+            }, (error) => {
+              console.error(`Error on following feed listener for type ${type}:`, error);
+              onError(error);
+            });
 
-          allUnsubscribers.push(unsub);
+            allUnsubscribers.push(unsub);
         });
       });
       
@@ -858,6 +909,25 @@ export const api = {
       } else {
         // User has not liked, so like
         await updateDoc(postRef, { upvotes: arrayUnion(userId) });
+        
+        // Add notification if it's not the user's own post
+        if (userId !== postData.authorId) {
+            const upvoter = await getUserProfile(userId);
+            if (upvoter) {
+                const notif: Omit<Notification, 'id'> = {
+                    userId: postData.authorId,
+                    type: 'POST_LIKE',
+                    message: `${upvoter.name} liked your post.`,
+                    link: postId,
+                    causerId: userId,
+                    causerName: upvoter.name,
+                    timestamp: Timestamp.now(),
+                    read: false,
+                };
+                const notifRef = doc(collection(db, 'notifications'));
+                await setDoc(notifRef, notif);
+            }
+        }
       }
     }
   },
