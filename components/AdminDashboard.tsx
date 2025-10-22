@@ -79,7 +79,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
   const [dialogState, setDialogState] = useState<{ isOpen: boolean; member: Member | null; action: 'reset' | 'clear' }>({ isOpen: false, member: null, action: 'reset' });
   const [roleChangeDialog, setRoleChangeDialog] = useState<{ isOpen: boolean; user: User | null; newRole: User['role'] | null }>({ isOpen: false, user: null, newRole: null });
   const [verificationModalState, setVerificationModalState] = useState<{ isOpen: boolean, member: Member | null }>({ isOpen: false, member: null });
-  const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
 
   useEffect(() => {
     if (initialChat && initialChat.role === user.role) {

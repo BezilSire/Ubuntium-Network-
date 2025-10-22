@@ -49,7 +49,7 @@ const reportsCollection = collection(db, 'reports');
 const userReportsCollection = collection(db, 'user_reports');
 const notificationsCollection = collection(db, 'notifications');
 const activityFeedCollection = collection(db, 'activity_feed');
-const PUBLIC_POST_TYPES: Post['type'][] = ['general', 'proposal', 'offer', 'opportunity'];
+const PUBLIC_POST_TYPES: Post['types'][] = ['general', 'proposal', 'offer', 'opportunity'];
 
 const getUserProfile = async (uid: string): Promise<User | null> => {
     const userDocRef = doc(db, 'users', uid);
@@ -186,7 +186,6 @@ export const api = {
 
   // User/Profile Management
   getUserProfile,
-  // FIX: Export `fetchUsersByUids` so it can be used by other components.
   fetchUsersByUids, 
 
   getSearchableUsers: async (currentUser: User): Promise<User[]> => {
@@ -200,7 +199,6 @@ export const api = {
     try {
       let q;
       // For non-admins, scope queries to their circle to be more permission-friendly.
-      // For all roles, remove orderBy to avoid needing a composite index.
       if (currentUser.role === 'admin') {
         q = query(activityFeedCollection, limit(100)); // Admins can get a broader set of recent users
       } else if (currentUser.circle) {
@@ -386,12 +384,10 @@ export const api = {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      // Make query more specific to avoid a full collection scan and rely on an index.
       const q = query(membersCollection, where('payment_status', '==', 'pending_verification'));
       return onSnapshot(q, 
         (snapshot) => {
             const pendingMembers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
-            // Sort client-side
             pendingMembers.sort((a, b) => new Date(a.date_registered).getTime() - new Date(b.date_registered).getTime());
             callback(pendingMembers);
         },
@@ -407,7 +403,6 @@ export const api = {
         onError(new Error("Permission denied: Admin access required."));
         return () => {};
       }
-      // Make query more specific to avoid a full collection scan and rely on an index.
       const q = query(usersCollection, where('role', '==', 'agent'));
       return onSnapshot(q,
         (snapshot) => {
@@ -542,7 +537,6 @@ export const api = {
   },
 
   getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    // Query without orderBy to avoid needing a composite index.
     const q = query(
         activityFeedCollection, 
         where("type", "==", "NEW_MEMBER"), 
@@ -570,7 +564,7 @@ export const api = {
     const q = query(
         postsCollection, 
         where("authorCircle", "==", circle),
-        limit(300) // Fetch more to sort and find unique authors
+        limit(300) // Fetch more to find unique authors
     );
     const snapshot = await getDocs(q);
     const posts = snapshot.docs.map(doc => doc.data() as Post);
@@ -588,8 +582,6 @@ export const api = {
   },
   
   exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
-    // Querying the activity feed is more efficient and permission-friendly than scanning all posts.
-    // Removed orderBy to prevent index errors and broad-scan permission errors. Order isn't critical for exploration.
     const q = query(
         activityFeedCollection,
         limit(100) // Get a large pool of activities
@@ -618,7 +610,7 @@ export const api = {
     return shuffled.slice(0, limitNum);
   },
   
-  createPost: async (author: User, content: string, type: Post['type']): Promise<Post> => {
+  createPost: async (author: User, content: string, type: Post['types']): Promise<Post> => {
       const newPostData: Omit<Post, 'id'> = {
           authorId: author.id,
           authorName: author.name,
@@ -628,7 +620,7 @@ export const api = {
           upvotes: [],
           commentCount: 0,
           repostCount: 0,
-          type,
+          types: type,
       };
       const postRef = await addDoc(postsCollection, newPostData);
       
@@ -665,7 +657,7 @@ export const api = {
         upvotes: [],
         commentCount: 0,
         repostCount: 0,
-        type: 'general',
+        types: 'general',
         repostedFrom: {
             postId: originalPost.id,
             authorId: originalPost.authorId,
@@ -699,7 +691,7 @@ export const api = {
           upvotes: [],
           commentCount: 0,
           repostCount: 0,
-          type: 'distress',
+          types: 'distress',
       };
       const postRef = await addDoc(postsCollection, newPostData);
       
@@ -714,7 +706,7 @@ export const api = {
       return updatedUser;
   },
 
-  listenForPosts: (filter: Post['type'] | 'all', callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
+  listenForPosts: (filter: Post['types'] | 'all', callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
     // This function is now only used for single-type feeds (like distress) and the old real-time 'all' feed logic is deprecated
     // in favor of the paginated fetch functions below.
     if (filter === 'all') {
@@ -723,7 +715,7 @@ export const api = {
       return () => {};
     }
 
-    const q = query(postsCollection, where("type", "==", filter), limit(50));
+    const q = query(postsCollection, where("types", "==", filter), limit(50));
         
     return onSnapshot(q,
         (snapshot) => {
@@ -743,7 +735,7 @@ export const api = {
     const q = query(
       postsCollection, 
       where("isPinned", "==", true), 
-      where("type", "in", PUBLIC_POST_TYPES)
+      where("types", "in", PUBLIC_POST_TYPES)
     );
     const snapshot = await getDocs(q);
     const posts = snapshot.docs
@@ -755,18 +747,18 @@ export const api = {
 
   fetchRegularPosts: async (
     limitNum: number, 
-    typeFilter: Post['type'] | 'all', 
+    typeFilter: Post['types'] | 'all', 
     lastVisible?: DocumentSnapshot<DocumentData>
   ): Promise<{ posts: Post[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
     
     const constraints: any[] = [orderBy("date", "desc")];
     
     if (typeFilter !== 'all') {
-      constraints.push(where("type", "==", typeFilter));
+      constraints.push(where("types", "==", typeFilter));
     } else {
       // For 'all' feed, we only want the public feed types.
       // 'distress' posts are special and not included here.
-      constraints.push(where("type", "in", PUBLIC_POST_TYPES));
+      constraints.push(where("types", "in", PUBLIC_POST_TYPES));
     }
     
     constraints.push(limit(limitNum));
@@ -790,7 +782,7 @@ export const api = {
       const q = query(
         postsCollection, 
         where("authorId", "==", authorId), 
-        where("type", "in", PUBLIC_POST_TYPES),
+        where("types", "in", PUBLIC_POST_TYPES),
         orderBy("date", "desc"),
         limit(50)
       );
@@ -823,7 +815,7 @@ export const api = {
           const q = query(
             postsCollection, 
             where("authorId", "in", chunk), 
-            where("type", "==", type),
+            where("types", "==", type),
             orderBy("date", "desc"),
             limit(20) // Limit per type to avoid fetching too much data
           );
@@ -1144,7 +1136,6 @@ export const api = {
   },
 
   listenForNotifications: (userId: string, callback: (notifs: Notification[]) => void, onError: (error: Error) => void): (() => void) => {
-    // Remove orderBy to avoid needing a composite index. Sorting will be done client-side.
     const q = query(notificationsCollection, where('userId', '==', userId), limit(50));
     return onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
@@ -1160,7 +1151,6 @@ export const api = {
         callback([]);
         return () => {};
       }
-      // Query without orderBy to avoid needing a composite index.
       const q = query(activityFeedCollection, where('causerCircle', '==', circle), limit(50));
       return onSnapshot(q, (snapshot) => {
           const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
@@ -1171,7 +1161,6 @@ export const api = {
   },
   
   listenForAllNewMemberActivity: (callback: (activities: Activity[]) => void, onError: (error: Error) => void): (() => void) => {
-      // Query without orderBy to avoid needing a composite index.
       const q = query(activityFeedCollection, where('type', '==', 'NEW_MEMBER'), limit(20));
       return onSnapshot(q, (snapshot) => {
           const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
@@ -1187,7 +1176,6 @@ export const api = {
   },
 
   markAllNotificationsAsRead: async (userId: string): Promise<void> => {
-    // Query only by userId to avoid composite index.
     const q = query(notificationsCollection, where('userId', '==', userId), limit(100));
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);

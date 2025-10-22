@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Post } from '../types';
 import { LayoutDashboardIcon } from './icons/LayoutDashboardIcon';
@@ -6,7 +7,8 @@ import { LightbulbIcon } from './icons/LightbulbIcon';
 import { UsersIcon } from './icons/UsersIcon';
 import { BriefcaseIcon } from './icons/BriefcaseIcon';
 
-type FilterType = Post['type'] | 'all';
+// FIX: Changed Post['type'] to Post['types'] to match the type definition.
+type FilterType = Post['types'] | 'all';
 
 interface PostTypeFilterProps {
   currentFilter: FilterType;

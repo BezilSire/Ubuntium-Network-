@@ -180,7 +180,7 @@ export const PostItem: React.FC<{
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
     const isFollowing = currentUser.following?.includes(post.authorId);
-    const isDistressPost = post.type === 'distress';
+    const isDistressPost = post.types === 'distress';
     const [showComments, setShowComments] = useState(false);
   
     const typeStyles: Record<string, { icon: React.ReactNode; borderColor: string; title: string }> = {
@@ -211,7 +211,7 @@ export const PostItem: React.FC<{
         },
     };
 
-    const style = typeStyles[post.type] || typeStyles.general;
+    const style = typeStyles[post.types] || typeStyles.general;
 
     return (
         <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 border-l-4 ${style.borderColor} ${isDistressPost ? 'motion-safe:animate-pulse' : ''}`}>
@@ -228,15 +228,15 @@ export const PostItem: React.FC<{
                 </div>
             )}
 
-            {style.title && post.type !== 'distress' && (
+            {style.title && post.types !== 'distress' && (
                 <div className="relative group self-start">
                     <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider bg-slate-700/50 text-gray-300 px-2.5 py-1 rounded-full">
                         {style.icon}
                         <span>{style.title}</span>
                     </div>
-                    {postTypeTooltips[post.type] && (
+                    {postTypeTooltips[post.types] && (
                         <div className="absolute bottom-full left-0 mb-2 w-48 bg-slate-900 text-white text-xs rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg border border-slate-700 z-10">
-                            {postTypeTooltips[post.type]}
+                            {postTypeTooltips[post.types]}
                         </div>
                     )}
                 </div>
@@ -404,7 +404,7 @@ export const PostItem: React.FC<{
 interface PostsFeedProps {
   user: User;
   feedType?: 'all' | 'following';
-  typeFilter?: Post['type'] | 'all';
+  typeFilter?: Post['types'] | 'all';
   authorId?: string;
   isAdminView?: boolean;
   onViewProfile: (userId: string) => void;
@@ -434,12 +434,12 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     try {
       const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
         api.fetchPinnedPosts(),
-        api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all')
+        api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all')
       ]);
       
       let pinnedPosts = pinnedPostsResult;
       if (typeFilter !== 'all') {
-        pinnedPosts = pinnedPosts.filter(p => p.type === typeFilter);
+        pinnedPosts = pinnedPosts.filter(p => p.types === typeFilter);
       }
 
       const all = [...pinnedPosts, ...regularPosts];
@@ -462,7 +462,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     if (!hasMore || isLoadingMore || !lastVisible) return;
     setIsLoadingMore(true);
     try {
-      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['type'] | 'all', lastVisible);
+      const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', lastVisible);
       
       const existingIds = new Set(posts.map(p => p.id));
       const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.id));
@@ -548,7 +548,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
   const handleConfirmDelete = async () => {
     if (!postToDelete) return;
     try {
-        if (postToDelete.type === 'distress') {
+        if (postToDelete.types === 'distress') {
             await api.deleteDistressPost(user, postToDelete.id, postToDelete.authorId);
         } else {
             await api.deletePost(postToDelete.id);

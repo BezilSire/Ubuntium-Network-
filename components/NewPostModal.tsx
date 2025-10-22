@@ -19,9 +19,9 @@ interface NewPostModalProps {
 const PostTypeButton: React.FC<{
     label: string;
     icon: React.ReactNode;
-    value: Post['type'];
-    currentValue: Post['type'];
-    onClick: (value: Post['type']) => void;
+    value: Post['types'];
+    currentValue: Post['types'];
+    onClick: (value: Post['types']) => void;
     tooltip: string;
 }> = ({ label, icon, value, currentValue, onClick, tooltip }) => (
     <div className="relative group flex-1">
@@ -45,7 +45,7 @@ const MAX_POST_LENGTH = 500;
 
 export const NewPostModal: React.FC<NewPostModalProps> = ({ isOpen, onClose, user, onPostCreated }) => {
   const [content, setContent] = useState('');
-  const [postType, setPostType] = useState<Post['type']>('general');
+  const [postType, setPostType] = useState<Post['types']>('general');
   const [isPosting, setIsPosting] = useState(false);
 
   if (!isOpen) {

@@ -147,8 +147,6 @@ const App: React.FC = () => {
         );
     }
 
-    // FIX: Removed redundant `currentUser.status !== 'pending'` check.
-    // The previous `if` block already handles the 'pending' case, so TypeScript correctly identified that this condition would always be true.
     if (!currentUser.isProfileComplete) {
         return <div className="p-4 sm:p-6 lg:p-8"><CompleteProfilePage user={currentUser} onProfileComplete={handleProfileComplete} /></div>;
     }

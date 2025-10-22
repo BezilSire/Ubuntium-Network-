@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, Member, Post, MemberUser } from '../types';
 import { api } from '../services/apiService';
@@ -43,7 +44,8 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const [isProcessingFollow, setIsProcessingFollow] = useState(false);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'activity' | 'about' | 'card'>('activity');
-    const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
+    // FIX: Changed Post['type'] to Post['types'] to match the type definition.
+    const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
     const { addToast } = useToast();
 
     useEffect(() => {

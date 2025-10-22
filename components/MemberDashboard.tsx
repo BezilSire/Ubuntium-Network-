@@ -29,7 +29,7 @@ interface MemberDashboardProps {
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
   const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile'>('feed');
   const [feedFilter, setFeedFilter] = useState<'all' | 'following'>('all');
-  const [typeFilter, setTypeFilter] = useState<Post['type'] | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
   const [isSubmittingDistress, setIsSubmittingDistress] = useState(false);

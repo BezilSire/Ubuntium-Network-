@@ -114,7 +114,7 @@ export interface Post {
   date: string; // ISO string
   upvotes: string[]; // Array of user IDs
   replies?: string[]; // Array of post IDs (for future implementation)
-  type: 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
+  types: 'general' | 'proposal' | 'offer' | 'distress' | 'opportunity';
   repostCount?: number;
   repostedFrom?: {
     postId: string;
