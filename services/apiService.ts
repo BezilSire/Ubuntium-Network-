@@ -31,6 +31,7 @@ import {
   startAfter,
   DocumentSnapshot,
   DocumentData,
+  runTransaction,
 } from 'firebase/firestore';
 import { ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { auth, db, rtdb } from './firebase';
@@ -186,38 +187,45 @@ export const api = {
   getUserProfile,
   fetchUsersByUids, 
 
+  awardKnowledgePoints: async (userId: string): Promise<boolean> => {
+    const userRef = doc(db, 'users', userId);
+    let wasAwarded = false;
+    try {
+      await runTransaction(db, async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists()) {
+          throw "User document does not exist!";
+        }
+        const userData = userDoc.data() as User;
+        if (!userData.hasReadKnowledgeBase) {
+          transaction.update(userRef, {
+            knowledgePoints: increment(10),
+            hasReadKnowledgeBase: true,
+          });
+          wasAwarded = true;
+        }
+      });
+      return wasAwarded;
+    } catch (e) {
+      console.error("Knowledge points transaction failed: ", e);
+      return false;
+    }
+  },
+
   getSearchableUsers: async (currentUser: User): Promise<User[]> => {
     if (currentUser.role === 'agent') {
       return [];
     }
-
-    let users: User[];
-    
     if (currentUser.role === 'admin') {
       // Admins can search everyone, including pending users.
       const q = query(usersCollection, where('status', 'in', ['active', 'pending']));
       const snapshot = await getDocs(q);
-      users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-    } else { // 'member' role
-      // For members, search is limited to their existing chat contacts to avoid permission errors.
-      const q = query(conversationsCollection, where('members', 'array-contains', currentUser.id));
-      const snapshot = await getDocs(q);
-      const conversations = snapshot.docs.map(doc => doc.data() as Conversation);
-      
-      const contactIds = new Set<string>();
-      conversations.forEach(convo => {
-          convo.members.forEach(memberId => contactIds.add(memberId));
-      });
-
-      if (contactIds.size > 0) {
-          users = await fetchUsersByUids(Array.from(contactIds), { includeInactive: false });
-      } else {
-          users = [];
-      }
-    }
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      return users.filter(user => user.id !== currentUser.id);
+    } 
     
-    // Filter out current user from the list
-    return users.filter(user => user.id !== currentUser.id);
+    // For members, search is limited to their existing chat contacts to avoid permission errors.
+    return api.getChatContacts(currentUser, false);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -946,23 +954,30 @@ export const api = {
       const snapshot = await getDocs(q);
       users = snapshot.docs.map(d => ({id: d.id, ...d.data()} as User));
     } else { // 'member'
-      // Members can only see users they are in conversations with to avoid permission errors.
+      // For members, derive contacts from existing conversations to respect security rules.
+      // This avoids a direct query on the `users` collection which would fail due to permissions.
       const q = query(conversationsCollection, where('members', 'array-contains', currentUser.id));
       const snapshot = await getDocs(q);
       const conversations = snapshot.docs.map(doc => doc.data() as Conversation);
-      
-      const contactIds = new Set<string>();
-      conversations.forEach(convo => {
-          convo.members.forEach(memberId => {
-              contactIds.add(memberId);
-          });
-      });
 
-      if (contactIds.size > 0) {
-          users = await fetchUsersByUids(Array.from(contactIds), { includeInactive: false });
-      } else {
-          users = [];
-      }
+      const contactMap = new Map<string, Partial<User>>();
+      conversations.forEach(convo => {
+        convo.members.forEach(memberId => {
+          if (!contactMap.has(memberId)) {
+            contactMap.set(memberId, {
+              id: memberId,
+              name: convo.memberNames[memberId] || 'Unknown Member',
+              // We don't have role/circle here. Assume role and leave circle blank for a cleaner UI.
+              role: 'member',
+              circle: '', // Set to empty string.
+            });
+          }
+        });
+      });
+      // The `as User[]` cast is technically incorrect as these are partial objects,
+      // but it's a necessary evil to make it compatible with components that expect User[].
+      // The components using this (GlobalSearch, MemberSearchModal) can handle the missing `circle`.
+      users = Array.from(contactMap.values()) as User[];
     }
     
     if (!includeSelf) {

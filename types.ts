@@ -17,6 +17,8 @@ export interface User {
   online?: boolean;
   lastSeen?: Timestamp;
   isProfileComplete?: boolean;
+  knowledgePoints?: number;
+  hasReadKnowledgeBase?: boolean;
 }
 
 // Agent-specific properties, extending the base User.

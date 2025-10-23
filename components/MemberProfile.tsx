@@ -7,6 +7,7 @@ import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 import { PostsFeed } from './PostsFeed';
 import { PostTypeFilter } from './PostTypeFilter';
 import { HelpCircleIcon } from './icons/HelpCircleIcon';
+import { BookOpenIcon } from './icons/BookOpenIcon';
 
 interface MemberProfileProps {
   memberId: string;
@@ -271,7 +272,17 @@ export const MemberProfile: React.FC<MemberProfileProps> = ({ memberId, currentU
                 <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-3xl font-bold text-white">{isEditing ? editData.full_name : member.full_name}</h2>
-                        <p className="text-lg text-green-400">{isEditing ? editData.profession : member.profession || 'Community Member'}</p>
+                        <div className="flex items-center gap-4 mt-2">
+                             <p className="text-lg text-green-400">{isEditing ? editData.profession : member.profession || 'Community Member'}</p>
+                             {isOwnProfile && (
+                                <div className="relative group flex items-center gap-1" title="Knowledge Points">
+                                    <BookOpenIcon className="h-4 w-4 text-blue-400" />
+                                    <span className="font-mono text-sm py-0.5 px-2 rounded-full bg-slate-700 text-blue-400">
+                                        {currentUser.knowledgePoints ?? 0}
+                                    </span>
+                                </div>
+                             )}
+                        </div>
                         <p className="text-sm text-gray-400">{member.circle} • Joined {new Date(member.date_registered).toLocaleDateString()}</p>
                     </div>
                     {isOwnProfile && !isEditing && (

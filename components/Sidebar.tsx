@@ -8,8 +8,9 @@ import { LogOutIcon } from './icons/LogOutIcon';
 import { ChevronDoubleLeftIcon } from './icons/ChevronDoubleLeftIcon';
 import { ChevronDoubleRightIcon } from './icons/ChevronDoubleRightIcon';
 import { BellIcon } from './icons/BellIcon';
+import { BookOpenIcon } from './icons/BookOpenIcon';
 
-type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications' | 'knowledge';
 
 interface SidebarProps {
   agent: Agent;
@@ -90,6 +91,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ agent, activeView, setActiveVi
             label="Profile"
             isActive={activeView === 'profile'}
             onClick={() => setActiveView('profile')}
+            isCollapsed={isCollapsed}
+          />
+           <NavItem
+            icon={<BookOpenIcon />}
+            label="Knowledge Base"
+            isActive={activeView === 'knowledge'}
+            onClick={() => setActiveView('knowledge')}
             isCollapsed={isCollapsed}
           />
         </ul>

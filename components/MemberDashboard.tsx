@@ -15,6 +15,7 @@ import { GlobeIcon } from './icons/GlobeIcon';
 import { UsersIcon } from './icons/UsersIcon';
 import { CommunityPage } from './CommunityPage';
 import { PostTypeFilter } from './PostTypeFilter';
+import { KnowledgeBasePage } from './KnowledgeBasePage';
 
 interface MemberDashboardProps {
   user: MemberUser;
@@ -27,7 +28,7 @@ interface MemberDashboardProps {
 }
 
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
-  const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile'>('feed');
+  const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile' | 'knowledge'>('feed');
   const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
@@ -170,6 +171,8 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
             return <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile}/>;
         case 'profile':
             return <MemberProfile memberId={user.member_id} currentUser={user} onUpdateUser={onUpdateUser} onViewProfile={onViewProfile} />;
+        case 'knowledge':
+            return <KnowledgeBasePage currentUser={user} onUpdateUser={onUpdateUser} />;
         default:
             return null;
     }

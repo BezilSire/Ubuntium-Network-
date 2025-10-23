@@ -14,9 +14,10 @@ import { api } from '../services/apiService';
 import { exportToCsv } from '../utils';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { NotificationsPage } from './NotificationsPage';
+import { KnowledgeBasePage } from './KnowledgeBasePage';
 
 
-type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications' | 'knowledge';
 
 interface AgentDashboardProps {
   user: Agent;
@@ -244,6 +245,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
   const renderNotificationsView = () => (
     <NotificationsPage user={user} onNavigate={handleNavigate} onViewProfile={onViewProfile} />
   );
+  
+  const renderKnowledgeBaseView = () => (
+    <KnowledgeBasePage currentUser={user} onUpdateUser={onUpdateUser} />
+  );
 
   const renderActiveView = () => {
     switch(activeView) {
@@ -255,6 +260,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
         return renderProfileView();
       case 'notifications':
         return renderNotificationsView();
+      case 'knowledge':
+        return renderKnowledgeBaseView();
       default:
         return renderDashboardView();
     }

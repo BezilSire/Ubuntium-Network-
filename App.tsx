@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -22,8 +23,9 @@ import { ChatBot } from './components/ChatBot';
 import { SparkleIcon } from './components/icons/SparkleIcon';
 import { UbtVerificationPage } from './components/UbtVerificationPage';
 import { ConfirmationDialog } from './components/ConfirmationDialog';
+import { KnowledgeBasePage } from './components/KnowledgeBasePage';
 
-type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications' | 'knowledge';
 
 const App: React.FC = () => {
   const { currentUser, isLoadingAuth, logout, updateUser } = useAuth();

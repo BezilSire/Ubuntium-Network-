@@ -5,8 +5,9 @@ import { UsersIcon } from './icons/UsersIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { LogOutIcon } from './icons/LogOutIcon';
 import { BellIcon } from './icons/BellIcon';
+import { BookOpenIcon } from './icons/BookOpenIcon';
 
-type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
+type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications' | 'knowledge';
 
 interface BottomNavBarProps {
   agent: Agent;
@@ -67,6 +68,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ agent, activeView, s
             isActive={activeView === 'notifications'}
             onClick={() => setActiveView('notifications')}
             count={unreadCount}
+        />
+        <NavItem
+            icon={<BookOpenIcon />}
+            label="Knowledge"
+            isActive={activeView === 'knowledge'}
+            onClick={() => setActiveView('knowledge')}
         />
         <NavItem
             icon={<UserCircleIcon />}

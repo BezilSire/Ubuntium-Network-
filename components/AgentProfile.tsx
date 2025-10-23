@@ -1,9 +1,11 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Agent, User } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import { ProfileCompletionMeter } from './ProfileCompletionMeter';
 import { HelpCircleIcon } from './icons/HelpCircleIcon';
+import { BookOpenIcon } from './icons/BookOpenIcon';
 
 interface AgentProfileProps {
   agent: Agent;
@@ -77,7 +79,17 @@ export const AgentProfile: React.FC<AgentProfileProps> = ({ agent, onUpdateUser 
 
   return (
     <div className="bg-slate-800 p-6 rounded-lg shadow-lg animate-fade-in max-w-2xl mx-auto">
-      <h2 className="text-2xl font-semibold text-white mb-2 border-b border-slate-700 pb-4">Your Profile</h2>
+       <div className="flex justify-between items-center mb-2 border-b border-slate-700 pb-4">
+            <div>
+                <h2 className="text-2xl font-semibold text-white">Your Profile</h2>
+            </div>
+            <div className="relative group flex items-center gap-1" title="Knowledge Points">
+                <BookOpenIcon className="h-4 w-4 text-blue-400" />
+                <span className="font-mono text-sm py-0.5 px-2 rounded-full bg-slate-700 text-blue-400">
+                    {agent.knowledgePoints ?? 0}
+                </span>
+            </div>
+        </div>
       
       <ProfileCompletionMeter profileData={formData} role="agent" />
 
