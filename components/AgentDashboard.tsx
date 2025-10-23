@@ -46,7 +46,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   
   // State for member list view
-  const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   
   const { addToast } = useToast();
@@ -85,10 +84,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
     fetchMembers();
   }, [user, addToast]);
   
-  // Reset pagination when search query changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
 
   const handleRegisterMember = async (newMemberData: NewMember) => {
     try {
@@ -183,7 +178,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
           <ul className="space-y-4 max-h-96 overflow-y-auto">
             {broadcasts.map(b => (
               <li key={b.id} className="border-b border-slate-700 pb-3">
-                <p className="text-sm text-gray-300">{b.message}</p>
+                <div
+                  className="text-sm text-gray-300 wysiwyg-content"
+                  dangerouslySetInnerHTML={{ __html: b.message }}
+                />
                 <p className="text-xs text-gray-500 mt-1">{new Date(b.date).toLocaleDateString()}</p>
               </li>
             ))}
@@ -201,13 +199,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
     const filteredMembers = members.filter(member =>
       member.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       member.email.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    const ITEMS_PER_PAGE = 10;
-    const totalPages = Math.ceil(filteredMembers.length / ITEMS_PER_PAGE);
-    const paginatedMembers = filteredMembers.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
     );
 
     return (
@@ -235,17 +226,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ user, broadcasts
              </div>
              {isLoading ? (
                 <p className="text-center py-8 text-gray-400">Loading members...</p>
-             ) : paginatedMembers.length > 0 ? (
-                 <>
-                    <MemberList members={paginatedMembers} onSelectMember={setSelectedMember} onViewProfile={onViewProfile} />
-                    <Pagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={setCurrentPage}
-                      totalItems={filteredMembers.length}
-                      itemsPerPage={ITEMS_PER_PAGE}
-                    />
-                 </>
+             ) : filteredMembers.length > 0 ? (
+                 <MemberList members={filteredMembers} onSelectMember={setSelectedMember} onViewProfile={onViewProfile} />
              ) : (
                 <p className="text-center py-8 text-gray-400">
                     {searchQuery ? 'No members match your search.' : "You haven't registered any members yet."}

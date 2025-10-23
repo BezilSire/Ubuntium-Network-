@@ -28,19 +28,10 @@ const ActivityIcon: React.FC<{ type: Activity['type'] }> = ({ type }) => {
 
 
 export const ActivityItem: React.FC<ActivityItemProps> = ({ activity, onViewProfile }) => {
-    const [memberBio, setMemberBio] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (activity.type === 'NEW_MEMBER' && activity.link) {
-            api.getUserProfile(activity.link).then(userProfile => {
-                if (userProfile?.bio) {
-                    setMemberBio(userProfile.bio);
-                }
-            }).catch(err => {
-                console.error("Failed to fetch user profile for activity item:", err);
-            });
-        }
-    }, [activity.type, activity.link]);
+    // NOTE: Removed useEffect that fetched member bio to prevent permission errors.
+    // The error "Missing or insufficient permissions" occurs because members cannot 'get'
+    // the full profile document of another member directly. This change fixes the error
+    // by removing the feature that displays the bio on this card.
 
     if (activity.type === 'NEW_MEMBER') {
         return (
@@ -66,11 +57,6 @@ export const ActivityItem: React.FC<ActivityItemProps> = ({ activity, onViewProf
                             <p className="text-sm text-gray-400 truncate">{activity.causerCircle}</p>
                         </div>
                     </div>
-                    {(memberBio) && (
-                        <blockquote className="mt-3 pl-3 border-l-4 border-slate-600 italic text-gray-400 text-sm max-h-24 overflow-hidden text-ellipsis">
-                           {`"${memberBio}"`}
-                        </blockquote>
-                    )}
                 </button>
             </div>
         );

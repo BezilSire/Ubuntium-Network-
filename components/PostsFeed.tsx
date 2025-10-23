@@ -2,8 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Post, User, Comment, Activity } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
-// FIX: Import LinkifyPart type to use with the updated linkify function.
-import { formatTimeAgo, linkify, LinkifyPart } from '../utils';
+import { formatTimeAgo } from '../utils';
 import { ThumbsUpIcon } from './icons/ThumbsUpIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { PencilIcon } from './icons/PencilIcon';
@@ -25,6 +24,9 @@ import { Timestamp, DocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { PinIcon } from './icons/PinIcon';
 import { LoaderIcon } from './icons/LoaderIcon';
 import { ActivityItem } from './ActivityItem';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { ShieldCheckIcon } from './icons/ShieldCheckIcon';
+import { LogoIcon } from './icons/LogoIcon';
 
 const postTypeTooltips: Record<string, string> = {
     proposal: "This is a proposal for a new idea, project, or policy for the commons.",
@@ -56,25 +58,9 @@ const CommentItem: React.FC<{
                          <button onClick={() => onViewProfile(comment.authorId)} className="font-semibold text-sm text-white hover:underline">{comment.authorName}</button>
                         <p className="text-xs text-gray-500">{formatTimeAgo(comment.timestamp.toDate().toISOString())}</p>
                     </div>
-                    {/* FIX: Map over the array returned by linkify to render text and links correctly. */}
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{
-                        linkify(comment.content).map((part, index) =>
-                            part.type === 'link' ? (
-                                <a
-                                    key={`comment-link-${comment.id}-${index}`}
-                                    href={part.href}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-green-400 hover:text-green-300 hover:underline"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    {part.content}
-                                </a>
-                            ) : (
-                                part.content
-                            )
-                        )
-                    }</p>
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">
+                        <MarkdownRenderer content={comment.content} />
+                    </p>
                 </div>
                 <div className="flex items-center space-x-3 mt-1 pl-2">
                     <button onClick={() => onUpvote(postId, comment.id)} className={`flex items-center space-x-1 text-xs ${hasUpvoted ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}>
@@ -172,15 +158,14 @@ export const PostItem: React.FC<{
     onViewProfile: (userId: string) => void;
     onRepost: (post: Post) => void;
     onShare: (post: Post) => void;
-    onFollowToggle: (targetUserId: string, targetUserName: string) => void;
     onTogglePin: (post: Post) => void;
     isAdminView?: boolean;
 }> = 
-({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, onFollowToggle, onTogglePin, isAdminView }) => {
+({ post, currentUser, onUpvote, onDelete, onEdit, onReport, onViewProfile, onRepost, onShare, onTogglePin, isAdminView }) => {
     const isOwnPost = post.authorId === currentUser.id;
     const hasUpvoted = post.upvotes.includes(currentUser.id);
-    const isFollowing = currentUser.following?.includes(post.authorId);
     const isDistressPost = post.types === 'distress';
+    const isAdminPost = post.authorRole === 'admin';
     const [showComments, setShowComments] = useState(false);
   
     const typeStyles: Record<string, { icon: React.ReactNode; borderColor: string; title: string }> = {
@@ -212,9 +197,19 @@ export const PostItem: React.FC<{
     };
 
     const style = typeStyles[post.types] || typeStyles.general;
+    
+    // Precedence: Distress > Admin > Other types
+    let containerClasses = 'bg-slate-800 p-4 rounded-lg shadow-md space-y-3 border-l-4';
+    if (isDistressPost) {
+        containerClasses += ` border-red-500/80 motion-safe:animate-pulse`;
+    } else if (isAdminPost) {
+        containerClasses += ` border-yellow-500/80`;
+    } else {
+        containerClasses += ` ${style.borderColor}`;
+    }
 
     return (
-        <div className={`bg-slate-800 p-4 rounded-lg shadow-md space-y-3 border-l-4 ${style.borderColor} ${isDistressPost ? 'motion-safe:animate-pulse' : ''}`}>
+        <div className={containerClasses}>
             {post.isPinned && (
                 <div className="flex items-center space-x-2 text-xs text-yellow-400 font-semibold mb-2 pb-2 border-b border-slate-700/50">
                     <PinIcon className="h-4 w-4 fill-current" />
@@ -228,7 +223,7 @@ export const PostItem: React.FC<{
                 </div>
             )}
 
-            {style.title && post.types !== 'distress' && (
+            {style.title && post.types !== 'distress' && !isAdminPost && (
                 <div className="relative group self-start">
                     <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider bg-slate-700/50 text-gray-300 px-2.5 py-1 rounded-full">
                         {style.icon}
@@ -244,33 +239,35 @@ export const PostItem: React.FC<{
 
             {/* Header */}
             <div className="flex items-start space-x-3">
-                 {isDistressPost ? 
+                {isDistressPost ? 
                     <SirenIcon className="h-10 w-10 text-red-500 flex-shrink-0" />
-                    :
-                    <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0" aria-label={`View ${post.authorName}'s profile`}>
-                       <UserCircleIcon className="h-10 w-10 text-gray-400" />
-                    </button>
-                 }
+                    : isAdminPost ? (
+                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
+                            <LogoIcon className="h-6 w-6 text-yellow-400"/>
+                        </div>
+                    )
+                    : (
+                        <button onClick={() => post.authorId && onViewProfile(post.authorId)} className="flex-shrink-0" aria-label={`View ${post.authorName}'s profile`}>
+                           <UserCircleIcon className="h-10 w-10 text-gray-400" />
+                        </button>
+                    )
+                }
                 <div className="flex-1">
                     <div className="flex items-center space-x-2">
-                        <button 
-                            onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
-                            className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
-                            disabled={isDistressPost}
-                            aria-label={`View ${post.authorName}'s profile`}
-                        >
-                            {post.authorName}
-                        </button>
-                         {!isOwnPost && !isDistressPost && (
-                            <>
-                                <span className="text-gray-500 text-xs">&bull;</span>
-                                <button
-                                    onClick={() => onFollowToggle(post.authorId, post.authorName)}
-                                    className={`text-xs font-semibold transition-colors ${isFollowing ? 'text-gray-400' : 'text-green-400 hover:text-green-300'}`}
-                                >
-                                    {isFollowing ? 'Following' : 'Follow'}
-                                </button>
-                            </>
+                        {isAdminPost ? (
+                            <div className="flex items-center space-x-2">
+                                <span className="font-semibold text-white">Ubuntium Admin</span>
+                                <ShieldCheckIcon className="h-4 w-4 text-yellow-400" title="Official Admin Post"/>
+                            </div>
+                        ) : (
+                            <button 
+                                onClick={() => post.authorId && !isDistressPost && onViewProfile(post.authorId)} 
+                                className={`font-semibold text-white ${!isDistressPost ? 'hover:underline' : 'cursor-default'} text-left`}
+                                disabled={isDistressPost}
+                                aria-label={`View ${post.authorName}'s profile`}
+                            >
+                                {post.authorName}
+                            </button>
                         )}
                     </div>
                     <p className="text-xs text-gray-500">{post.authorCircle} &bull; {formatTimeAgo(post.date)}</p>
@@ -301,24 +298,13 @@ export const PostItem: React.FC<{
             </div>
 
             {/* Content */}
-            {post.content && <p className="text-gray-200 whitespace-pre-wrap break-words">{
-                linkify(post.content).map((part, index) =>
-                    part.type === 'link' ? (
-                        <a
-                            key={`post-link-${post.id}-${index}`}
-                            href={part.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-green-400 hover:text-green-300 hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {part.content}
-                        </a>
-                    ) : (
-                        part.content
-                    )
-                )
-            }</p>}
+            {post.content && (
+                <div
+                    className="text-gray-200 wysiwyg-content"
+                    dangerouslySetInnerHTML={{ __html: post.content }}
+                />
+            )}
+
 
             {/* Reposted Content */}
             {post.repostedFrom && (
@@ -330,24 +316,10 @@ export const PostItem: React.FC<{
                             <p className="text-xs text-gray-500">{post.repostedFrom.authorCircle} &bull; {formatTimeAgo(post.repostedFrom.date)}</p>
                         </div>
                     </div>
-                    <p className="text-gray-300 text-sm whitespace-pre-wrap break-words">{
-                        linkify(post.repostedFrom.content).map((part, index) =>
-                            part.type === 'link' ? (
-                                <a
-                                    key={`repost-link-${post.repostedFrom?.postId}-${index}`}
-                                    href={part.href}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-green-400 hover:text-green-300 hover:underline"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    {part.content}
-                                </a>
-                            ) : (
-                                part.content
-                            )
-                        )
-                    }</p>
+                    <div
+                        className="text-gray-300 text-sm wysiwyg-content"
+                        dangerouslySetInnerHTML={{ __html: post.repostedFrom.content }}
+                    />
                 </div>
             )}
 
@@ -403,7 +375,7 @@ export const PostItem: React.FC<{
 
 interface PostsFeedProps {
   user: User;
-  feedType?: 'all' | 'following';
+  feedType?: 'all';
   typeFilter?: Post['types'] | 'all';
   authorId?: string;
   isAdminView?: boolean;
@@ -432,9 +404,10 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     setHasMore(true);
     setPosts([]);
     try {
-        // FIX: Add type assertion to `typeFilter` to prevent type errors when a parent component passes a generic string.
         const [pinnedPostsResult, { posts: regularPosts, lastVisible: newLastVisible }] = await Promise.all([
             api.fetchPinnedPosts(isAdminView),
+            // FIX: Explicitly cast typeFilter to its expected type.
+            // This resolves a TypeScript inference issue where typeFilter is sometimes widened to `string`.
             api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', isAdminView)
         ]);
         
@@ -463,7 +436,8 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     if (!hasMore || isLoadingMore || !lastVisible) return;
     setIsLoadingMore(true);
     try {
-      // FIX: Add type assertion to `typeFilter` to prevent type errors when a parent component passes a generic string.
+      // FIX: Explicitly cast typeFilter to its expected type.
+      // This resolves a TypeScript inference issue where typeFilter is sometimes widened to `string`.
       const { posts: newPosts, lastVisible: newLastVisible } = await api.fetchRegularPosts(POSTS_PER_PAGE, typeFilter as Post['types'] | 'all', isAdminView, lastVisible);
       
       const existingIds = new Set(posts.map(p => p.id));
@@ -500,17 +474,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
             setHasMore(false);
         }, onError);
         return unsub;
-    } else if (feedType === 'following') {
-        setIsLoading(true);
-        const unsub = api.listenForFollowingPosts(user.following || [], (fetchedPosts) => {
-            const filtered = typeFilter === 'all' ? fetchedPosts : fetchedPosts.filter(p => p.types === typeFilter);
-            setPosts(filtered);
-            setIsLoading(false);
-            setHasMore(false);
-        }, onError);
-        return unsub;
-    }
-    else { // 'all' feed with pagination
+    } else { // 'all' feed with pagination
         fetchInitialPosts();
         unsubActivities = api.listenForAllNewMemberActivity((acts) => {
             setActivities(acts);
@@ -518,7 +482,7 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     }
     
     return () => { unsubActivities(); };
-  }, [feedType, authorId, user.following, addToast, fetchInitialPosts, typeFilter]);
+  }, [feedType, authorId, addToast, fetchInitialPosts, typeFilter]);
   
   const mergedAndSortedItems = useMemo(() => {
     const typedPosts = posts.map(p => ({ ...p, itemType: 'post' as const, sortDate: new Date(p.date) }));
@@ -648,25 +612,6 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
     }
   };
   
-  const handleFollowToggle = async (targetUserId: string, targetUserName: string) => {
-    if (!user) return;
-    const isCurrentlyFollowing = user.following?.includes(targetUserId);
-
-    if (user.id === targetUserId) return;
-
-    try {
-      if (isCurrentlyFollowing) {
-        await api.unfollowUser(user.id, targetUserId);
-        addToast(`Unfollowed ${targetUserName}`, 'info');
-      } else {
-        await api.followUser(user.id, targetUserId);
-        addToast(`You are now following ${targetUserName}`, 'success');
-      }
-    } catch (error) {
-      addToast('Action failed. Please try again.', 'error');
-    }
-  };
-
   const handleTogglePin = async (post: Post) => {
     if (user.role !== 'admin') return;
     try {
@@ -702,7 +647,6 @@ export const PostsFeed: React.FC<PostsFeedProps> = ({ user, feedType = 'all', ty
                     onViewProfile={onViewProfile} 
                     onRepost={setPostToRepost} 
                     onShare={handleShare}
-                    onFollowToggle={handleFollowToggle}
                     onTogglePin={handleTogglePin}
                 />
               ) : (

@@ -1,3 +1,5 @@
+
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -118,8 +120,6 @@ export const api = {
       agent_code: generateAgentCode(),
       status: 'active',
       credibility_score: 100,
-      following: [],
-      followers: [],
     };
     await setDoc(doc(usersCollection, user.uid), newAgent);
     return newAgent;
@@ -160,8 +160,6 @@ export const api = {
             phone: memberData.phone,
             address: memberData.address,
             id_card_number: memberData.national_id,
-            following: [],
-            followers: [],
         };
         await setDoc(doc(usersCollection, permanentUser.uid), newUserProfile);
         return newUserProfile;
@@ -189,42 +187,37 @@ export const api = {
   fetchUsersByUids, 
 
   getSearchableUsers: async (currentUser: User): Promise<User[]> => {
-    const allUids = new Set<string>();
+    if (currentUser.role === 'agent') {
+      return [];
+    }
 
-    // 1. Add direct connections (following/followers)
-    (currentUser.following || []).forEach(uid => allUids.add(uid));
-    (currentUser.followers || []).forEach(uid => allUids.add(uid));
+    let users: User[];
     
-    // 2. Add users from activity as a discovery mechanism
-    try {
-      let q;
-      // For non-admins, scope queries to their circle to be more permission-friendly.
-      if (currentUser.role === 'admin') {
-        q = query(activityFeedCollection, limit(100)); // Admins can get a broader set of recent users
-      } else if (currentUser.circle) {
-        q = query(activityFeedCollection, where('causerCircle', '==', currentUser.circle), limit(50));
-      }
+    if (currentUser.role === 'admin') {
+      // Admins can search everyone, including pending users.
+      const q = query(usersCollection, where('status', 'in', ['active', 'pending']));
+      const snapshot = await getDocs(q);
+      users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+    } else { // 'member' role
+      // For members, search is limited to their existing chat contacts to avoid permission errors.
+      const q = query(conversationsCollection, where('members', 'array-contains', currentUser.id));
+      const snapshot = await getDocs(q);
+      const conversations = snapshot.docs.map(doc => doc.data() as Conversation);
       
-      if (q) {
-          const activitySnapshot = await getDocs(q);
-          activitySnapshot.docs.forEach(doc => {
-              const causerId = doc.data().causerId;
-              if (causerId) {
-                allUids.add(causerId);
-              }
-          });
+      const contactIds = new Set<string>();
+      conversations.forEach(convo => {
+          convo.members.forEach(memberId => contactIds.add(memberId));
+      });
+
+      if (contactIds.size > 0) {
+          users = await fetchUsersByUids(Array.from(contactIds), { includeInactive: false });
+      } else {
+          users = [];
       }
-    } catch (error) {
-        console.warn("Could not fetch recent activity for search suggestions. User discovery may be limited.", error);
     }
     
-    // 3. Remove self from the list
-    allUids.delete(currentUser.id);
-    
-    const uniqueUids = Array.from(allUids);
-    if (uniqueUids.length === 0) return [];
-
-    return await fetchUsersByUids(uniqueUids);
+    // Filter out current user from the list
+    return users.filter(user => user.id !== currentUser.id);
   },
 
   getMemberByUid: async(uid: string): Promise<Member | null> => {
@@ -421,15 +414,29 @@ export const api = {
       if (currentUser.role !== 'admin') throw new Error("Permission denied: Admin access required.");
       if (!member.uid) throw new Error("Member does not have a user account to approve.");
       
-      const welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
+      let welcome_message = `Welcome to the Ubuntium Global Commons, ${member.full_name}! We are thrilled to have you join the ${member.circle} Circle. I am because we are.`;
+      let needs_welcome_update = false;
+
+      try {
+          welcome_message = await generateWelcomeMessage(member.full_name, member.circle);
+      } catch (error) {
+          console.warn("Could not generate welcome message during approval (likely offline). Using default and flagging for update.", error);
+          needs_welcome_update = true;
+      }
+
       const batch = writeBatch(db);
 
       const memberRef = doc(db, 'members', member.id);
-      batch.update(memberRef, { 
+      const memberUpdatePayload: any = { 
           payment_status: 'complete', 
           welcome_message,
           membership_card_id: `UGC-M-${Date.now()}`
-      });
+      };
+      if (needs_welcome_update) {
+          memberUpdatePayload.needs_welcome_update = true;
+      }
+      batch.update(memberRef, memberUpdatePayload);
+
 
       const userRef = doc(db, 'users', member.uid);
       batch.update(userRef, { status: 'active', distress_calls_available: 2 });
@@ -535,79 +542,37 @@ export const api = {
       }
       return null;
   },
-
-  getNewMembersInCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(
-        activityFeedCollection, 
-        where("type", "==", "NEW_MEMBER"), 
-        where("causerCircle", "==", circle),
-        limit(50) // Fetch more to sort client-side and get the latest
-    );
-    const snapshot = await getDocs(q);
-    const activities = snapshot.docs.map(doc => doc.data() as Activity);
-
-    // Sort client-side to get the newest members
-    activities.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
-
-    const memberUids = activities
-        .slice(0, 12) // Take the latest 12 after sorting
-        .map(activity => activity.causerId)
-        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
-
-    if (memberUids.length === 0) return [];
-    
-    const uniqueUids: string[] = Array.from(new Set(memberUids));
-    return await fetchUsersByUids(uniqueUids);
-  },
-
-  getMembersInSameCircle: async (circle: string, currentUserId: string): Promise<User[]> => {
-    const q = query(
-        postsCollection, 
-        where("authorCircle", "==", circle),
-        limit(300) // Fetch more to find unique authors
-    );
-    const snapshot = await getDocs(q);
-    const posts = snapshot.docs.map(doc => doc.data() as Post);
-    posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    const authorUids = posts
-        .map(post => post.authorId)
-        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
-
-    if (authorUids.length === 0) return [];
-
-    const uniqueUids: string[] = Array.from(new Set(authorUids));
-    const users = await fetchUsersByUids(uniqueUids);
-    return users.slice(0, 50); // Return up to 50 users from the circle
-  },
   
-  exploreMembers: async (currentUserId: string, currentUserCircle: string | undefined, limitNum: number = 12): Promise<User[]> => {
-    const q = query(
-        activityFeedCollection,
-        limit(100) // Get a large pool of activities
-    );
-    const snapshot = await getDocs(q);
-    const activities = snapshot.docs.map(doc => doc.data() as Activity);
-
-    let memberUids = activities
-        .filter(activity => currentUserCircle ? activity.causerCircle !== currentUserCircle : true) // Client-side filter
-        .map(activity => activity.causerId)
-        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
-
-    // Fallback if no one is found outside the circle (or user has no circle)
-    if (memberUids.length === 0 && snapshot.docs.length > 0) {
-      memberUids = activities
-        .map(activity => activity.causerId)
-        .filter((uid): uid is string => typeof uid === 'string' && !!uid && uid !== currentUserId);
+  // This function will require a composite index in Firestore on 'users': `role` (asc), `status` (in-filter), and `name` (ascending).
+  fetchCommunityMembersPaginated: async (
+    limitNum: number,
+    lastVisible?: DocumentSnapshot<DocumentData>
+  ): Promise<{ users: User[], lastVisible: DocumentSnapshot<DocumentData> | null }> => {
+    const constraints: any[] = [
+        where('role', '==', 'member'),
+        where('status', 'in', ['active', 'pending']),
+        orderBy('name'),
+        limit(limitNum)
+    ];
+    if (lastVisible) {
+        constraints.push(startAfter(lastVisible));
     }
-    
-    const uniqueUids: string[] = Array.from(new Set(memberUids));
-    if (uniqueUids.length === 0) return [];
-
-    const users = await fetchUsersByUids(uniqueUids);
-    
-    const shuffled = users.sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, limitNum);
+    const q = query(usersCollection, ...constraints);
+    const snapshot = await getDocs(q);
+    const users = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Construct a truly lightweight user object for the list view.
+        return {
+            id: doc.id,
+            name: data.name,
+            email: data.email, // Required by User type
+            role: data.role,   // Required by User type
+            status: data.status,
+            circle: data.circle,
+        } as User;
+    });
+    const newLastVisible = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+    return { users, lastVisible: newLastVisible };
   },
   
   createPost: async (author: User, content: string, type: Post['types']): Promise<Post> => {
@@ -615,6 +580,7 @@ export const api = {
           authorId: author.id,
           authorName: author.name,
           authorCircle: author.circle || 'Unknown',
+          authorRole: author.role,
           content,
           date: new Date().toISOString(),
           upvotes: [],
@@ -652,6 +618,7 @@ export const api = {
         authorId: author.id,
         authorName: author.name,
         authorCircle: author.circle || 'Unknown',
+        authorRole: author.role,
         content: comment,
         date: new Date().toISOString(),
         upvotes: [],
@@ -686,6 +653,7 @@ export const api = {
           authorId: currentUser.id,
           authorName: "Anonymous Member",
           authorCircle: currentUser.circle || 'Unknown',
+          authorRole: currentUser.role,
           content,
           date: new Date().toISOString(),
           upvotes: [],
@@ -838,57 +806,6 @@ export const api = {
 
     return () => allUnsubscribers.forEach(unsub => unsub());
   },
-
-  listenForFollowingPosts: (followingIds: string[], callback: (posts: Post[]) => void, onError: (error: Error) => void): (() => void) => {
-      if (followingIds.length === 0) {
-          callback([]);
-          return () => {};
-      }
-      
-      const chunks: string[][] = [];
-      for (let i = 0; i < followingIds.length; i += 30) {
-        chunks.push(followingIds.slice(i, i + 30));
-      }
-      
-      const postMap = new Map<string, Post>();
-      const allUnsubscribers: (() => void)[] = [];
-
-      // Create a listener for each combination of author chunk and public post type.
-      // This makes the queries specific enough to be allowed by security rules.
-      chunks.forEach(chunk => {
-        PUBLIC_POST_TYPES.forEach(type => {
-            const q = query(
-                postsCollection, 
-                where("authorId", "in", chunk),
-                where("types", "==", type),
-                orderBy("date", "desc"),
-                limit(25) // Limit per query to avoid fetching too much data from one type/chunk
-            );
-
-            const unsub = onSnapshot(q, (snapshot) => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'removed') {
-                        postMap.delete(change.doc.id);
-                    } else {
-                        const post = { id: change.doc.id, ...change.doc.data() } as Post;
-                        postMap.set(change.doc.id, post);
-                    }
-                });
-                
-                const allPosts = Array.from(postMap.values());
-                allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                callback(allPosts);
-            }, (error) => {
-              console.error(`Error on following feed listener for type ${type}:`, error);
-              onError(error);
-            });
-
-            allUnsubscribers.push(unsub);
-        });
-      });
-      
-      return () => allUnsubscribers.forEach(unsub => unsub());
-  },
   
   togglePinPost: async (currentUser: User, postId: string, newPinState: boolean): Promise<void> => {
     if (currentUser.role !== 'admin') {
@@ -1018,23 +935,38 @@ export const api = {
     await updateDoc(reportRef, { status: 'resolved' });
   },
 
-  // ... (rest of the functions: chat, notifications, etc.)
   getChatContacts: async (currentUser: User, includeSelf = false): Promise<User[]> => {
-    if (currentUser.role === 'agent') return []; // Agents can't start chats
-    let users: User[] = [];
+    if (currentUser.role === 'agent') return [];
+
+    let users: User[];
+
     if (currentUser.role === 'admin') {
-        const q = query(usersCollection);
-        const snapshot = await getDocs(q);
-        users = snapshot.docs.map(d => ({id: d.id, ...d.data()} as User)).filter(u => u.status === 'active');
-    } else { // Member
-        const uids = [...new Set([...(currentUser.following || []), ...(currentUser.followers || [])])];
-        if (uids.length > 0) {
-            users = await fetchUsersByUids(uids);
-        }
+      // Admins can contact all active users
+      const q = query(usersCollection, where('status', '==', 'active'));
+      const snapshot = await getDocs(q);
+      users = snapshot.docs.map(d => ({id: d.id, ...d.data()} as User));
+    } else { // 'member'
+      // Members can only see users they are in conversations with to avoid permission errors.
+      const q = query(conversationsCollection, where('members', 'array-contains', currentUser.id));
+      const snapshot = await getDocs(q);
+      const conversations = snapshot.docs.map(doc => doc.data() as Conversation);
+      
+      const contactIds = new Set<string>();
+      conversations.forEach(convo => {
+          convo.members.forEach(memberId => {
+              contactIds.add(memberId);
+          });
+      });
+
+      if (contactIds.size > 0) {
+          users = await fetchUsersByUids(Array.from(contactIds), { includeInactive: false });
+      } else {
+          users = [];
+      }
     }
     
     if (!includeSelf) {
-        users = users.filter(user => user.id !== currentUser.id);
+      users = users.filter(user => user.id !== currentUser.id);
     }
     return users;
   },
@@ -1168,41 +1100,6 @@ export const api = {
       });
       
       await batch.commit();
-  },
-  
-  followUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-    const currentUserRef = doc(db, 'users', currentUserId);
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(currentUserRef, { following: arrayUnion(targetUserId) });
-    batch.update(targetUserRef, { followers: arrayUnion(currentUserId) });
-    
-    // Create notification for the user being followed
-    const currentUser = await getUserProfile(currentUserId);
-    if(currentUser) {
-        const notif: Omit<Notification, 'id'> = {
-            userId: targetUserId,
-            type: 'NEW_FOLLOWER',
-            message: `${currentUser.name} started following you.`,
-            link: currentUserId,
-            causerId: currentUserId,
-            causerName: currentUser.name,
-            timestamp: Timestamp.now(),
-            read: false,
-        };
-        const notifRef = doc(collection(db, 'notifications'));
-        batch.set(notifRef, notif);
-    }
-    await batch.commit();
-  },
-
-  unfollowUser: async (currentUserId: string, targetUserId: string): Promise<void> => {
-    const batch = writeBatch(db);
-    const currentUserRef = doc(db, 'users', currentUserId);
-    const targetUserRef = doc(db, 'users', targetUserId);
-    batch.update(currentUserRef, { following: arrayRemove(targetUserId) });
-    batch.update(targetUserRef, { followers: arrayRemove(targetUserId) });
-    await batch.commit();
   },
 
   listenForNotifications: (userId: string, callback: (notifs: Notification[]) => void, onError: (error: Error) => void): (() => void) => {

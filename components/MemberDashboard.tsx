@@ -28,7 +28,6 @@ interface MemberDashboardProps {
 
 export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcasts, onUpdateUser, unreadCount, onViewProfile, initialChat, onInitialChatConsumed }) => {
   const [activeView, setActiveView] = useState<'feed' | 'community' | 'connect' | 'notifications' | 'profile'>('feed');
-  const [feedFilter, setFeedFilter] = useState<'all' | 'following'>('all');
   const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
   const [isDistressDialogOpen, setIsDistressDialogOpen] = useState(false);
@@ -47,11 +46,6 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         onInitialChatConsumed();
     }
   }, [initialChat, user.role, onInitialChatConsumed]);
-
-  useEffect(() => {
-    // Reset type filter when switching main feed tabs for a cleaner UX
-    setTypeFilter('all');
-  }, [feedFilter]);
 
   useEffect(() => {
     if (user.status === 'active') {
@@ -144,23 +138,10 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
     addToast("Post created successfully!", "success");
   }
   
-  const FeedTabs = () => (
+  const FeedHeader = () => (
      <div className="mb-4 sticky top-[68px] z-20 bg-slate-900/80 backdrop-blur-sm -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
         <div className="border-b border-slate-700">
-            <nav className="-mb-px flex space-x-6" aria-label="Tabs">
-                 <button
-                    onClick={() => setFeedFilter('all')}
-                    className={`${feedFilter === 'all' ? 'border-green-500 text-green-400' : 'border-transparent text-gray-400 hover:text-gray-200'} group inline-flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-                >
-                    <GlobeIcon className="h-5 w-5 mr-2" /> For You
-                </button>
-                 <button
-                    onClick={() => setFeedFilter('following')}
-                    className={`${feedFilter === 'following' ? 'border-green-500 text-green-400' : 'border-transparent text-gray-400 hover:text-gray-200'} group inline-flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-                >
-                    <UsersIcon className="h-5 w-5 mr-2" /> Following
-                </button>
-            </nav>
+            <h2 className="py-4 text-lg font-semibold text-white inline-flex items-center"><GlobeIcon className="h-5 w-5 mr-2" /> For You</h2>
         </div>
     </div>
   );
@@ -171,11 +152,11 @@ export const MemberDashboard: React.FC<MemberDashboardProps> = ({ user, broadcas
         case 'feed':
             return (
                 <>
-                    <FeedTabs />
+                    <FeedHeader />
                     <PostTypeFilter currentFilter={typeFilter} onFilterChange={setTypeFilter} />
                     <PostsFeed 
                         user={user} 
-                        feedType={feedFilter} 
+                        feedType="all" 
                         typeFilter={typeFilter} 
                         onViewProfile={onViewProfile} 
                     />

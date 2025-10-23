@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Admin, Agent, Member, Broadcast, Report, User, MemberUser, Conversation, NotificationItem, Post } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
@@ -72,6 +72,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
 
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+
 
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
@@ -228,13 +230,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
     });
   }, [agents, members]);
   
-  const handleSendBroadcast = async (e: React.FormEvent) => {
+   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!broadcastMessage.trim()) return;
+    if (!editorRef.current?.textContent?.trim()) return;
     setIsSending(true);
     try {
       await onSendBroadcast(broadcastMessage);
       setBroadcastMessage('');
+      if (editorRef.current) {
+        editorRef.current.innerHTML = '';
+      }
     } catch (error) {
        addToast('Failed to send broadcast.', 'error');
     } finally {
@@ -379,6 +384,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
         </button>
     );
 
+    const handleFormatClick = (command: string, value?: string) => {
+        editorRef.current?.focus();
+        document.execCommand(command, false, value);
+        if (editorRef.current) {
+            const event = new Event('input', { bubbles: true });
+            editorRef.current.dispatchEvent(event);
+        }
+    };
+
+    const handleBroadcastInput = (e: React.FormEvent<HTMLDivElement>) => {
+        const html = e.currentTarget.innerHTML;
+        setBroadcastMessage(html);
+    };
+
+
     const renderDashboardView = () => (
         <div className="space-y-8">
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -395,8 +415,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                 <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-white mb-4">Send Broadcast</h3>
                     <form onSubmit={handleSendBroadcast}>
-                        <textarea value={broadcastMessage} onChange={e => setBroadcastMessage(e.target.value)} rows={4} placeholder="Type your message to all users..." className="w-full bg-slate-700 p-2 rounded-md text-white focus:ring-green-500 focus:border-green-500"></textarea>
-                        <button type="submit" disabled={isSending} className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:bg-slate-500">
+                        <div className="border border-slate-700 rounded-md">
+                            <div className="flex items-center space-x-1 p-2 bg-slate-700 border-b border-slate-600">
+                                <button type="button" title="Heading 1" onClick={() => handleFormatClick('formatBlock', '<h1>')} className="px-2 py-1 text-sm font-bold text-gray-300 hover:bg-slate-600 rounded">H1</button>
+                                <button type="button" title="Heading 2" onClick={() => handleFormatClick('formatBlock', '<h2>')} className="px-2 py-1 text-sm font-bold text-gray-300 hover:bg-slate-600 rounded">H2</button>
+                                <button type="button" title="Bold" onClick={() => handleFormatClick('bold')} className="px-2 py-1 text-sm font-bold text-gray-300 hover:bg-slate-600 rounded w-8">B</button>
+                                <button type="button" title="Italic" onClick={() => handleFormatClick('italic')} className="px-2 py-1 text-sm font-bold italic text-gray-300 hover:bg-slate-600 rounded w-8">I</button>
+                            </div>
+                            <div
+                                ref={editorRef}
+                                contentEditable="true"
+                                onInput={handleBroadcastInput}
+                                data-placeholder="Type your message to all users..."
+                                className="w-full bg-slate-700 p-3 text-white text-base focus:outline-none wysiwyg-editor"
+                                style={{minHeight: '120px', overflowY: 'auto'}}
+                            />
+                        </div>
+                        <button type="submit" disabled={isSending} className="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:bg-slate-500">
                             {isSending ? "Sending..." : "Send to All"}
                         </button>
                     </form>
@@ -406,7 +441,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                     <ul className="space-y-3 max-h-64 overflow-y-auto">
                         {broadcasts.slice(0, 5).map(b => (
                             <li key={b.id} className="border-b border-slate-700 pb-2">
-                                <p className="text-sm text-gray-300">{b.message}</p>
+                                <div 
+                                    className="text-sm text-gray-300 wysiwyg-content"
+                                    dangerouslySetInnerHTML={{ __html: b.message }}
+                                />
                                 <p className="text-xs text-gray-500 mt-1">{new Date(b.date).toLocaleDateString()}</p>
                             </li>
                         ))}
@@ -452,7 +490,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                     </div>
                 )}
                 {userView === 'members' && (
-                    <MemberList members={(paginatedItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={onViewProfile} onStartChat={(user) => handleStartChat(user)}/>
+                    <MemberList members={(filteredItems as Member[])} isAdminView onMarkAsComplete={handleMarkComplete} onResetQuota={(m) => setDialogState({isOpen: true, member: m, action: 'reset'})} onClearDistressPost={(m) => setDialogState({isOpen: true, member: m, action: 'clear'})} onSelectMember={(m) => m.payment_status === 'pending_verification' && setVerificationModalState({ isOpen: true, member: m })} onViewProfile={onViewProfile} onStartChat={(user) => handleStartChat(user)}/>
                 )}
                 {userView === 'roles' && (
                      <div className="flow-root">
@@ -482,7 +520,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, broadcasts
                         </table>
                     </div>
                 )}
-                <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} itemsPerPage={ITEMS_PER_PAGE} />
+                {userView !== 'members' && (
+                    <Pagination 
+                        currentPage={currentPage} 
+                        totalPages={totalPages} 
+                        onPageChange={setCurrentPage} 
+                        totalItems={filteredItems.length} 
+                        itemsPerPage={ITEMS_PER_PAGE} 
+                    />
+                )}
             </>
         </div>
     );

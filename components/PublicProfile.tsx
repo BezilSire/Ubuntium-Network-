@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { User, Member, Post, MemberUser } from '../types';
 import { api } from '../services/apiService';
@@ -10,8 +8,6 @@ import { PostsFeed } from './PostsFeed';
 import { IdCardIcon } from './icons/IdCardIcon';
 import { InfoIcon } from './icons/InfoIcon';
 import { MemberCard } from './MemberCard';
-import { UserPlusIcon } from './icons/UserPlusIcon';
-import { UserCheckIcon } from './icons/UserCheckIcon';
 import { FlagIcon } from './icons/FlagIcon';
 import { ReportUserModal } from './ReportUserModal';
 import { PostTypeFilter } from './PostTypeFilter';
@@ -42,10 +38,8 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
     const [user, setUser] = useState<User | null>(null);
     const [memberDetails, setMemberDetails] = useState<Member | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isProcessingFollow, setIsProcessingFollow] = useState(false);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'activity' | 'about' | 'card'>('activity');
-    // FIX: Changed Post['type'] to Post['types'] to match the type definition.
     const [typeFilter, setTypeFilter] = useState<Post['types'] | 'all'>('all');
     const { addToast } = useToast();
 
@@ -87,26 +81,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
         }
     }, [userId, addToast]);
     
-    const isFollowing = currentUser.following?.includes(userId) ?? false;
-    
-    const handleFollowToggle = async () => {
-        if (!user) return;
-        setIsProcessingFollow(true);
-        try {
-            if (isFollowing) {
-                await api.unfollowUser(currentUser.id, user.id);
-                addToast(`Unfollowed ${user.name}`, 'info');
-            } else {
-                await api.followUser(currentUser.id, user.id);
-                addToast(`You are now following ${user.name}`, 'success');
-            }
-        } catch (error) {
-            addToast('Action failed. Please try again.', 'error');
-        } finally {
-            setIsProcessingFollow(false);
-        }
-    };
-
     const handleReportSubmit = async (reason: string, details: string) => {
         if (!user) return;
         try {
@@ -225,10 +199,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                         </div>
                         <p className="text-lg text-green-400">{memberDetails?.profession || <span className="capitalize">{user.role}</span>}</p>
                         <p className="text-sm text-gray-400">{user.circle}</p>
-                        <div className="flex items-center space-x-4 mt-2 text-sm text-gray-300">
-                            <span><strong className="text-white">{user.followers?.length ?? 0}</strong> Followers</span>
-                            <span><strong className="text-white">{user.following?.length ?? 0}</strong> Following</span>
-                        </div>
                     </div>
                      <div className="flex flex-row flex-wrap gap-2 w-full sm:w-auto">
                         {!isOwnProfile && (
@@ -238,16 +208,6 @@ export const PublicProfile: React.FC<PublicProfileProps> = ({ userId, currentUse
                             >
                                 <MessageSquareIcon className="h-4 w-4" />
                                 <span>Message</span>
-                            </button>
-                        )}
-                        {!isOwnProfile && (
-                            <button 
-                                onClick={handleFollowToggle}
-                                disabled={isProcessingFollow}
-                                className={`inline-flex items-center justify-center space-x-2 px-4 py-2 text-sm font-semibold rounded-md grow sm:grow-0 transition-colors ${isFollowing ? 'bg-green-800 text-green-300 hover:bg-green-900' : 'bg-green-600 text-white hover:bg-green-700'}`}
-                            >
-                                {isFollowing ? <UserCheckIcon className="h-4 w-4"/> : <UserPlusIcon className="h-4 w-4" />}
-                                <span>{isFollowing ? 'Following' : 'Follow'}</span>
                             </button>
                         )}
                          {!isOwnProfile && (

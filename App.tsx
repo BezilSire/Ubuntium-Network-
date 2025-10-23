@@ -21,6 +21,7 @@ import { CompleteProfilePage } from './components/CompleteProfilePage';
 import { ChatBot } from './components/ChatBot';
 import { SparkleIcon } from './components/icons/SparkleIcon';
 import { UbtVerificationPage } from './components/UbtVerificationPage';
+import { ConfirmationDialog } from './components/ConfirmationDialog';
 
 type AgentView = 'dashboard' | 'members' | 'profile' | 'notifications';
 
@@ -45,6 +46,7 @@ const App: React.FC = () => {
   
   // State for the AI Chat Bot
   const [isChatBotOpen, setIsChatBotOpen] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
 
   // Hook to remind users to complete their profile
@@ -92,6 +94,15 @@ const App: React.FC = () => {
       setHasSyncedOnConnect(false);
     }
   }, [isOnline, hasSyncedOnConnect, addToast, currentUser]);
+
+  const requestLogout = () => {
+    setIsLogoutConfirmOpen(true);
+  };
+
+  const confirmLogout = async () => {
+    await logout();
+    setIsLogoutConfirmOpen(false);
+  };
 
   const handleSendBroadcast = async (message: string) => {
     if (!currentUser) throw new Error("Not authenticated.");
@@ -142,7 +153,7 @@ const App: React.FC = () => {
     if (currentUser.status === 'pending') {
         return (
             <div className="p-4 sm:p-6 lg:p-8 flex items-center justify-center min-h-[calc(100vh-100px)]">
-                <UbtVerificationPage user={currentUser} />
+                <UbtVerificationPage user={currentUser} onLogout={requestLogout} />
             </div>
         );
     }
@@ -192,7 +203,7 @@ const App: React.FC = () => {
                     agent={currentUser as Agent}
                     activeView={agentView}
                     setActiveView={setAgentView}
-                    onLogout={logout}
+                    onLogout={requestLogout}
                     isCollapsed={isSidebarCollapsed}
                     onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                     unreadCount={unreadNotificationCount}
@@ -213,7 +224,7 @@ const App: React.FC = () => {
                     agent={currentUser as Agent}
                     activeView={agentView}
                     setActiveView={setAgentView}
-                    onLogout={logout}
+                    onLogout={requestLogout}
                     unreadCount={unreadNotificationCount}
                 />
             )}
@@ -239,7 +250,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white dark">
-      <Header user={currentUser} onLogout={logout} onViewProfile={setGlobalViewingProfileId} />
+      <Header user={currentUser} onLogout={requestLogout} onViewProfile={setGlobalViewingProfileId} />
       {renderContent()}
       <ToastContainer />
       <AppInstallBanner />
@@ -257,6 +268,14 @@ const App: React.FC = () => {
           )}
         </>
       )}
+       <ConfirmationDialog
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={confirmLogout}
+        title="Confirm Logout"
+        message="Are you sure you want to log out?"
+        confirmButtonText="Logout"
+      />
     </div>
   );
 };

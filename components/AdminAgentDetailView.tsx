@@ -22,20 +22,12 @@ const DetailItem: React.FC<{label: string, value: string, isMono?: boolean}> = (
 
 
 export const AdminAgentDetailView: React.FC<AdminAgentDetailViewProps> = ({ agent, members, onBack }) => {
-  const [currentPage, setCurrentPage] = React.useState(1);
   const [searchQuery, setSearchQuery] = React.useState('');
   const { addToast } = useToast();
 
   const filteredMembers = members.filter(member =>
     member.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     member.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const ITEMS_PER_PAGE = 10;
-  const totalPages = Math.ceil(filteredMembers.length / ITEMS_PER_PAGE);
-  const paginatedMembers = filteredMembers.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
   );
 
   const handleDownload = () => {
@@ -94,17 +86,8 @@ export const AdminAgentDetailView: React.FC<AdminAgentDetailViewProps> = ({ agen
                     Download CSV
                 </button>
              </div>
-            {paginatedMembers.length > 0 ? (
-                <>
-                    <MemberList members={paginatedMembers} />
-                    <Pagination 
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        onPageChange={setCurrentPage}
-                        totalItems={filteredMembers.length}
-                        itemsPerPage={ITEMS_PER_PAGE}
-                    />
-                </>
+            {filteredMembers.length > 0 ? (
+                <MemberList members={filteredMembers} />
             ) : (
                 <div className="text-center py-8 bg-slate-900/50 rounded-lg">
                     <p className="text-gray-400">

@@ -17,8 +17,6 @@ export interface User {
   online?: boolean;
   lastSeen?: Timestamp;
   isProfileComplete?: boolean;
-  following?: string[]; // Array of user IDs they are following
-  followers?: string[]; // Array of user IDs following them
 }
 
 // Agent-specific properties, extending the base User.
@@ -110,6 +108,7 @@ export interface Post {
   authorId: string;
   authorName: string;
   authorCircle: string;
+  authorRole: 'admin' | 'agent' | 'member';
   content: string;
   date: string; // ISO string
   upvotes: string[]; // Array of user IDs

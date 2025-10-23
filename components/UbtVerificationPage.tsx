@@ -1,14 +1,13 @@
 import React from 'react';
 import { User } from '../types';
 import { LogoIcon } from './icons/LogoIcon';
-import { useAuth } from '../contexts/AuthContext';
 
 interface UbtVerificationPageProps {
   user: User;
+  onLogout: () => void;
 }
 
-export const UbtVerificationPage: React.FC<UbtVerificationPageProps> = ({ user }) => {
-  const { logout } = useAuth();
+export const UbtVerificationPage: React.FC<UbtVerificationPageProps> = ({ user, onLogout }) => {
   const WHATSAPP_LINK = "https://wa.me/447446959717?text=I%20already%20own%20%24UBT%20and%20need%20verification";
   const FOUNDER_ID_LINK = "https://ubuntium.org/founder-id";
 
@@ -53,7 +52,7 @@ export const UbtVerificationPage: React.FC<UbtVerificationPageProps> = ({ user }
       <div className="text-center mt-8 pt-6 border-t border-slate-700">
         <p className="text-sm text-gray-400">Finished for now? You can log out and come back later.</p>
         <button
-            onClick={logout}
+            onClick={onLogout}
             className="mt-2 inline-block align-baseline font-bold text-sm text-green-500 hover:text-green-400"
         >
             Log Out

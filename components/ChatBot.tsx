@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeChat, getChatBotResponse } from '../services/geminiService';
 import { XCircleIcon } from './icons/XCircleIcon';
@@ -7,6 +8,7 @@ import { SparkleIcon } from './icons/SparkleIcon';
 import { UserCircleIcon } from './icons/UserCircleIcon';
 import { LoaderIcon } from './icons/LoaderIcon';
 import { User } from '../types';
+import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 
 interface ChatBotProps {
   isOpen: boolean;
@@ -33,12 +35,19 @@ export const ChatBot: React.FC<ChatBotProps> = ({ isOpen, onClose, currentUser }
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
   
   const CHAT_HISTORY_KEY = `chatHistory_${currentUser.id}`;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   
   useEffect(() => {
     if (isOpen) {
@@ -109,12 +118,19 @@ export const ChatBot: React.FC<ChatBotProps> = ({ isOpen, onClose, currentUser }
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center space-x-2">
+           {isMobile && (
+            <button onClick={onClose} className="text-gray-400 hover:text-white -ml-1 mr-2 p-1" aria-label="Back">
+              <ArrowLeftIcon className="h-6 w-6" />
+            </button>
+          )}
           <SparkleIcon className="h-6 w-6 text-green-400" />
           <h3 className="text-lg font-bold text-white">Ubuntium Assistant</h3>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Close chat">
-          <XCircleIcon className="h-6 w-6" />
-        </button>
+        {!isMobile && (
+            <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Close chat">
+            <XCircleIcon className="h-6 w-6" />
+            </button>
+        )}
       </div>
 
       {/* Messages */}
