@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+
+import React, { useEffect, useRef, useState } from 'react';
 import { User } from '../types';
 import { api } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
@@ -9,6 +10,7 @@ import { BriefcaseIcon } from './icons/BriefcaseIcon';
 import { GlobeIcon } from './icons/GlobeIcon';
 import { DollarSignIcon } from './icons/DollarSignIcon';
 import { LogoIcon } from './icons/LogoIcon';
+import { ChevronDownIcon } from './icons/ChevronDownIcon';
 
 const knowledgeContent = [
   {
@@ -43,6 +45,63 @@ const knowledgeContent = [
   }
 ];
 
+const AccordionItem: React.FC<{ title: string; content: string; }> = ({ title, content }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    return (
+        <div className="border-b border-slate-700 last:border-b-0">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex justify-between items-center text-left p-4 hover:bg-slate-700/50"
+                aria-expanded={isOpen}
+            >
+                <h3 className="text-md font-semibold text-gray-200">{title}</h3>
+                <ChevronDownIcon className={`h-5 w-5 text-gray-400 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="px-4 pb-4 text-gray-300 whitespace-pre-line leading-relaxed animate-fade-in">
+                    {content}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const circleSystemContent = {
+  icon: <UsersIcon className="h-8 w-8 text-green-400" />,
+  title: "The 100-Member Circle Leadership System",
+  intro: "Building Fairness as Infrastructure within the Ubuntium Commons.\n\nThe Ubuntium Commons introduces a new model of local governance and value creation called the 100-Member Circle Leadership System. Its purpose is to transform social networks into productive, self-sustaining economic units — “Circles” — each bound by proof of human contribution and guided by verified local leadership.",
+  sections: [
+    {
+      title: "1. Core Definition",
+      text: "A Circle is a verified community node of one hundred members, registered and connected by an Agent.\n\nWhen an Agent successfully registers one hundred unique and verified participants, the system automatically establishes a permanent Circle under their stewardship. That Agent becomes the Permanent Circle Leader (PCL) and is authorised to coordinate local projects, mobilise members, and represent that Circle within the broader Commons network.\n\nEach participant holds a Skill Wallet, a digital record of skills, verified actions, and community contributions. Together, the Circle structure and Skill Wallets form the living ledger of the Commons economy — a transparent map of participation, productivity, and fairness."
+    },
+    {
+      title: "2. Functional Rationale",
+      text: "The 100-Member model solves three persistent problems simultaneously:\n1. Fragmentation – It rebuilds trust and accountability at a human scale.\n2. Unemployment and under-utilisation – It converts social ties into local production and verified work.\n3. Centralisation – It distributes authority through measurable contribution, not political appointment.\n\nThe number one hundred is deliberate. It is large enough to generate economic diversity yet small enough for personal accountability an echo of the sociological Dunbar’s number, the cognitive limit of stable human relationships."
+    },
+    {
+      title: "3. Operational Logic",
+      text: "• Formation: A Circle forms automatically when the 100-member threshold is met.\n• Replication: Additional sign-ups trigger the birth of new Circles, allowing infinite horizontal growth.\n• Autonomy: Each Circle manages its own micro-projects — food production, tutoring, trade, maintenance — with transparent record-keeping.\n• Interdependence: Circles exchange goods, services, and skills with others, creating an inter-Circle market.\n• Governance: Circle Leaders collectively deliberate on Commons policies and resource distribution.\n• AI Oversight: An AI fairness engine monitors participation, detects inactivity, and highlights emerging leadership, ensuring the system self-balances."
+    },
+    {
+      title: "4. Economic Mechanism",
+      text: "Every verified action inside a Circle — responding to a distress call, fulfilling an opportunity, completing a project — is logged in the Skill Wallet.\n\nThis produces a measurable chain of real economic activity.\n\nValue then flows back through:\n• periodic $UBT reward distributions;\n• micro-funds managed by each Circle for community projects; and\n• inter-Circle trade and opportunity exchange.\n\nThe result is a grassroots economy where wealth arises from proof of participation rather than speculation or external capital."
+    },
+    {
+      title: "5. Social and Psychological Impact",
+      text: "The model satisfies the three deepest human drivers:\n1. Belonging – Membership within a tangible, supportive Circle.\n2. Pride – Advancement through verified contribution, not privilege.\n3. Proof – A visible record of one’s effort and reliability.\n\nFor many, becoming a Circle Leader is the first taste of institutional power that is both earned and permanent. It converts social energy into civic confidence."
+    },
+    {
+      title: "6. Scaling Vision",
+      text: "If ten thousand Circles were formed nationwide, each with one hundred active members, the Commons would encompass one million verified citizens each with a Skill Wallet, each participating in local production and verified assistance.\n\nAI-driven analytics would continuously measure output, direct rewards, and display the national fairness pulse in real time.\n\nAt scale, this becomes a parallel economic state, owned by its participants and governed by transparent proof rather than political decree."
+    },
+    {
+      title: "7. Philosophical Implication",
+      text: "The 100-Member Circle System redefines economics itself:\n\nAn economy is not money changing hands; it is people exchanging contribution.\n\nHere, fairness is not a sentiment; it is infrastructure.\nLeadership is not assigned; it is verified through action.\nInstitutions are no longer central authorities but distributed Circles of responsibility.\n\nIn this model, the Commons replaces bureaucracy, the Skill Wallet replaces the résumé, and the measure of progress becomes the number of lives directly improved."
+    }
+  ]
+};
+
 interface KnowledgeBasePageProps {
   currentUser: User;
   onUpdateUser: (updatedData: Partial<User>) => Promise<void>;
@@ -51,6 +110,8 @@ interface KnowledgeBasePageProps {
 export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ currentUser, onUpdateUser }) => {
     const { addToast } = useToast();
     const sentinelRef = useRef(null);
+    const [isContentVisible, setIsContentVisible] = useState(true);
+    const [isFirstArticleOpen, setIsFirstArticleOpen] = useState(false);
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -94,22 +155,77 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ currentUse
                         You've earned 10 knowledge points for reviewing this material. Welcome back!
                     </div>
                 )}
+                <button
+                    onClick={() => setIsContentVisible(!isContentVisible)}
+                    className="mt-6 inline-flex items-center justify-center px-4 py-2 bg-slate-700 text-white rounded-md hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-green-500 text-sm"
+                    aria-expanded={isContentVisible}
+                >
+                    <span>{isContentVisible ? 'Hide' : 'Show'} Full Text</span>
+                    <ChevronDownIcon className={`ml-2 h-5 w-5 transform transition-transform duration-300 ${isContentVisible ? 'rotate-180' : ''}`} />
+                </button>
             </div>
 
-            {knowledgeContent.map((item, index) => (
-                <div key={index} className="bg-slate-800 p-6 rounded-lg shadow-lg flex flex-col sm:flex-row items-start gap-6">
-                    <div className="flex-shrink-0 bg-slate-700 p-4 rounded-full">
-                        {item.icon}
+            <div className={`transition-all duration-700 ease-in-out overflow-hidden ${isContentVisible ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                <div className="space-y-8">
+                    {knowledgeContent.map((item, index) => {
+                         if (index === 0) {
+                            return (
+                                <div key={index} className="bg-slate-800 rounded-lg shadow-lg">
+                                    <button
+                                        onClick={() => setIsFirstArticleOpen(!isFirstArticleOpen)}
+                                        className="w-full text-left p-6 flex flex-col sm:flex-row items-start gap-6 hover:bg-slate-700/20 rounded-lg"
+                                        aria-expanded={isFirstArticleOpen}
+                                    >
+                                        <div className="flex-shrink-0 bg-slate-700 p-4 rounded-full">
+                                            {item.icon}
+                                        </div>
+                                        <div className="flex-1 flex justify-between items-start w-full">
+                                            <h2 className="text-xl font-bold text-white">{item.title}</h2>
+                                            <ChevronDownIcon className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 flex-shrink-0 ${isFirstArticleOpen ? 'rotate-180' : ''}`} />
+                                        </div>
+                                    </button>
+                                    {isFirstArticleOpen && (
+                                        <div className="px-6 pb-6 animate-fade-in">
+                                            <div className="sm:pl-[88px]"> {/* 64px for icon container + 24px gap */}
+                                                <p className="text-gray-300 whitespace-pre-line leading-relaxed">{item.text}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
+                        return (
+                            <div key={index} className="bg-slate-800 p-6 rounded-lg shadow-lg flex flex-col sm:flex-row items-start gap-6">
+                                <div className="flex-shrink-0 bg-slate-700 p-4 rounded-full">
+                                    {item.icon}
+                                </div>
+                                <div className="flex-1">
+                                    <h2 className="text-xl font-bold text-white mb-2">{item.title}</h2>
+                                    <p className="text-gray-300 whitespace-pre-line leading-relaxed">{item.text}</p>
+                                </div>
+                            </div>
+                        )
+                    })}
+
+                    <div className="bg-slate-800 p-6 rounded-lg shadow-lg flex flex-col sm:flex-row items-start gap-6">
+                        <div className="flex-shrink-0 bg-slate-700 p-4 rounded-full">
+                            {circleSystemContent.icon}
+                        </div>
+                        <div className="flex-1 w-full">
+                            <h2 className="text-xl font-bold text-white mb-2">{circleSystemContent.title}</h2>
+                            <p className="text-gray-300 whitespace-pre-line leading-relaxed mb-4">{circleSystemContent.intro}</p>
+                            <div className="mt-4 border border-slate-700 rounded-lg">
+                                {circleSystemContent.sections.map((section, index) => (
+                                    <AccordionItem key={index} title={section.title} content={section.text} />
+                                ))}
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex-1">
-                        <h2 className="text-xl font-bold text-white mb-2">{item.title}</h2>
-                        <p className="text-gray-300 whitespace-pre-line leading-relaxed">{item.text}</p>
+
+                    <div ref={sentinelRef} className="text-center p-8 text-slate-600 italic">
+                        the commons protect those who protects the commons
                     </div>
                 </div>
-            ))}
-
-            <div ref={sentinelRef} className="text-center p-8 text-slate-600 italic">
-                the commons protect those who protects the commons
             </div>
         </div>
     );
